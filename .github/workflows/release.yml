@@ -1,0 +1,484 @@
+name: release
+
+# The checks that gate a release: the tag's SSH signature against
+# `.github/allowed_signers`, the tag's name read as `v` and the version
+# `pyproject.toml` carries at the tagged commit, both shown refusing tags built
+# wrong, and the suite at the tag. A signed `v*` tag starts
+# `.github/workflows/publish.yml`, the release path, which calls this file as
+# its `gate` job and uploads to PyPI and creates the GitHub release only after
+# every job here has passed (its header). This file does not start on a tag by
+# itself, so one tag starts one run. On every pull request and on `main` it
+# runs by its own triggers, where `refusal` is the job with work to do.
+#
+# This file builds nothing and pushes nothing to a registry, and the GitHub
+# release carries no files of its own (README, "Releases"). A merge cannot
+# release.
+#
+# TO CUT A RELEASE, from a clone whose `gpg.format` is `ssh` and whose
+# `user.signingkey` is the key `.github/allowed_signers` names, at a commit
+# whose `pyproject.toml` says version X.Y.Z:
+#   git tag -s vX.Y.Z -m "crosslink X.Y.Z: <summary>"
+#   bash .github/release/verify-tag.sh vX.Y.Z .github/allowed_signers
+#   bash .github/release/check-version.sh vX.Y.Z
+#   git push origin vX.Y.Z
+# The second and third lines are the checks `signature` will run, before the
+# tag is public. A bare `git verify-tag` is not the first: it passes a
+# signature moved from another tag. The annotation's first line becomes the
+# release's summary.
+#
+# THE CHECKS ARE SHOWN TO REFUSE, NOT ONLY TO PASS. `refusal` runs the same two
+# scripts `signature` runs, against tags and commits built wrong on purpose in
+# the runner's own clone, and asserts each one's exit code. It runs on every
+# pull request and on `main`, so the refusal is on record before a tag is
+# pushed, and on the tag push itself, where `publish.yml`'s `release` needs
+# it: a release is created only in a run that also showed both checks
+# rejecting, at the same commit.
+#
+# WHAT THIS DOES NOT PROVE:
+#   - The allowed-signers file, the scripts and this workflow all come from the
+#     tagged commit, so whoever can cut a `v*` tag can point it at a tree that
+#     trusts their own key. The signature is a gate on the key the tree names,
+#     not on who holds it.
+#   - The version check compares the tag's name with `pyproject.toml`'s version
+#     at the tagged commit, and nothing more. It does not show that the
+#     version is the right one to cut. The tree writes its version a second
+#     time, as `crosslink.__version__`; `publish.yml`'s `build` compares that
+#     with the built wheel's, and nothing here reads it.
+#   - While `.github/allowed_signers` names no key, `refusal` is red on
+#     purpose and no tag can verify: the arms that need the real file's key
+#     run last, so every other arm is still read.
+#   - `publish.yml`'s `release` compares the remote tag with the object
+#     `signature` verified, then creates the release by the tag's name a
+#     moment later. A tag replaced inside that moment is not caught.
+
+# No `tags:` here, and do not add one: a tag push that started this file too
+# would run these checks twice, and only `publish.yml`'s run can upload. On a
+# tag, `github.ref` in a called workflow is the caller's, so the tag-only jobs
+# below run there and skip on a pull request or on `main`.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+    outputs:
+      tag-object:
+        description: The tag object `signature` verified, for publish.yml's `release` job.
+        value: ${{ jobs.signature.outputs.tag-object }}
+
+permissions:
+  contents: read
+
+# No job here is named `tests`, or anything else a required check matches. A
+# job skipped by its `if:` still reports, and a skipped report under a required
+# check's name would read as that check passing.
+jobs:
+  # The pushed tag, verified first so a wrong one fails in seconds and the
+  # suite never runs for it.
+  #
+  # NO `git fetch` OF THE TAG, and do not add one. Checkout at this pin fetches
+  # a tag push by ref, tag object included, and refuses the run unless that tag
+  # peels to `github.sha`. A `--force` re-fetch would swap in whatever the tag
+  # names now, so the signature read would no longer be the one over the commit
+  # being tested. If a later checkout delivers a bare commit instead, this goes
+  # red with exit 3, never green; the remote's view is printed so a lightweight
+  # push (no `^{}` line) can be told from a checkout that dropped the object.
+  signature:
+    name: the tag is signed
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag-object: ${{ steps.object.outputs.tag-object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The gate is this one call and nothing around it, so the exit code the
+      # `refusal` job asserts is the exit code this step reports.
+      - name: The tag is signed by a key in .github/allowed_signers
+        run: bash .github/release/verify-tag.sh "$GITHUB_REF_NAME" .github/allowed_signers
+
+      # The same: one call, whose exit code `refusal` asserts. It reads
+      # `pyproject.toml` from the commit the tag names, which checkout has
+      # already refused to let differ from `github.sha`.
+      - name: The tag is v and the version pyproject.toml carries
+        run: bash .github/release/check-version.sh "$GITHUB_REF_NAME"
+
+      - name: The remote's view of the tag, for a refusal
+        if: failure()
+        run: |
+          echo "Nothing has been released."
+          git ls-remote origin "refs/tags/${GITHUB_REF_NAME}" "refs/tags/${GITHUB_REF_NAME}^{}" || true
+
+      # The object verified above, so `publish.yml`'s `release` can refuse a
+      # tag that was moved after this read.
+      - name: The tag object verified
+        id: object
+        run: echo "tag-object=$(git rev-parse "refs/tags/${GITHUB_REF_NAME}")" >> "$GITHUB_OUTPUT"
+
+  # The same suite `checks.yml` runs as `tests` and `tests (3.13)`, repeated
+  # here rather than depended on: a release gate that trusts another workflow's
+  # green is trusting a run that may have been for a different commit. It
+  # checks out `github.sha`, the commit `signature` verified, never the tag by
+  # name.
+  suite:
+    name: suite at the tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [signature]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # No cache: a release is judged on what this run downloaded and checked
+      # against the lock's hashes, not on what an earlier run left behind.
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+
+      # Both interpreters the classifiers in `pyproject.toml` name, from the
+      # tracked lock, with the same command `checks.yml` runs. `--frozen`
+      # refuses to update the lock, and the `service` extra is there because
+      # two test files import the codec it pins. pytest exits 5 when it
+      # collected nothing, so an empty suite is red here, not a pass.
+      - name: The suite, on the floor and on the version above it
+        run: |
+          for version in 3.12 3.13; do
+            echo "::group::Python ${version}"
+            uv run --frozen --python "$version" --extra test --extra service pytest -q
+            echo "::endgroup::"
+          done
+
+  # Tags built wrong on purpose, one per way a release tag can be wrong, each
+  # expected to be refused with its own exit code (the table at the head of
+  # `verify-tag.sh`), and two built right, expected to be admitted. They exist
+  # only in this job's clone. Nothing here can push them: the clone keeps no
+  # credentials and the token is read-only.
+  #
+  # The admitted arms need a signature the verifier trusts, and the release key
+  # never comes near CI. So a throwaway key is generated here and trusted only
+  # by files in this job's temp directory, discarded with the runner. One of
+  # them is the real `.github/allowed_signers` with each line's key swapped for
+  # the throwaway, principal and options kept, so the real file's shape is seen
+  # to admit before a real tag depends on it. The same signed tag is checked
+  # against the real file itself, which must refuse it: that arm is the "any
+  # other signer" case.
+  #
+  # THE THREE STEPS THAT NEED A KEY IN THE REAL FILE RUN LAST: the keys it
+  # names, the "any other signer" arm and the real file's shape. A file that
+  # names no key stops the job there, red, after every other arm has been
+  # read. The arms before them hand the verifier the throwaway file, because
+  # what they build wrong is the tag, and a file with no key would refuse
+  # each of them as blind (exit 2) instead of for what is wrong with it.
+  #
+  # The version arms need commits whose `pyproject.toml` says something other
+  # than this tree's, so they are built here too, from this tree's file with
+  # only the version line changed, removed or shadowed, and never checked out.
+  # The mismatched arm is a tag on this job's own commit under a name its
+  # version is not. Every version arm's tag is signed by the throwaway key,
+  # because the gate only reaches this check with a signed tag object.
+  refusal:
+    name: the verifier refuses
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERIFY: .github/release/verify-tag.sh
+      SIGNERS: .github/allowed_signers
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: The tools
+        run: |
+          git --version
+          ssh -V
+
+      - name: Tags and signers files built in this job, never pushed
+        run: |
+          git config user.name "release refusal arm"
+          git config user.email "refusal@example.invalid"
+          ssh-keygen -q -t ed25519 -N '' -C throwaway -f "$RUNNER_TEMP/throwaway"
+          read -r ttype tkey _ < "$RUNNER_TEMP/throwaway.pub"
+          printf 'refusal@example.invalid namespaces="git" %s %s\n' "$ttype" "$tkey" > "$RUNNER_TEMP/throwaway_signers"
+          printf '# a comment\n\n   \n' > "$RUNNER_TEMP/keyless_signers"
+          # A second key, which signs nothing: a file that names it alone is a
+          # file that does not name the signer.
+          ssh-keygen -q -t ed25519 -N '' -C other -f "$RUNNER_TEMP/other"
+          read -r otype okey _ < "$RUNNER_TEMP/other.pub"
+          [ "$okey" != "$tkey" ] || { echo "::error::The two throwaway keys are the same key."; exit 1; }
+          printf 'other@example.invalid namespaces="git" %s %s\n' "$otype" "$okey" > "$RUNNER_TEMP/other_signers"
+          awk -v t="$ttype" -v k="$tkey" '!/^[[:space:]]*(#|$)/ {
+                 for (i = 2; i < NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) {
+                   line = $1; for (j = 2; j < i; j++) line = line " " $j
+                   print line, t, k; next
+                 }
+               }' "$SIGNERS" > "$RUNNER_TEMP/real_shape_signers"
+          echo "the real file's shape, with the throwaway key (empty while the file names no key):"
+          cut -d' ' -f1-2 "$RUNNER_TEMP/real_shape_signers"
+
+          sign() { git -c gpg.format=ssh -c user.signingkey="$RUNNER_TEMP/throwaway" tag -s "$@"; }
+          git tag v0.0.0-lightweight
+          git tag -a v0.0.0-unsigned -m "an annotated tag with no signature"
+          sign v0.0.0-signed -m "signed by a key generated in this job"
+          sign v0.0.0-nosummary -m ""
+          git update-ref refs/tags/v0.0.0-moved "$(git rev-parse refs/tags/v0.0.0-signed)"
+          # An SSH line in the message, then a gpg block: git reads the last.
+          decoy="$(printf 'object %s\ntype commit\ntag v0.0.0-decoy\ntagger release refusal arm <refusal@example.invalid> 0 +0000\n\ndecoy\n-----BEGIN SSH SIGNATURE-----\n-----BEGIN PGP SIGNATURE-----\n\nnot a signature\n-----END PGP SIGNATURE-----\n' \
+            "$(git rev-parse HEAD)" | git hash-object -t tag -w --stdin)"
+          git update-ref refs/tags/v0.0.0-decoy "$decoy"
+
+          # Commits for the version arms: this tree with pyproject.toml's
+          # version line replaced or removed, or with another table's
+          # `version` put ahead of it. The arm version carries a local label
+          # no release will, so no tag a push fetches can share an arm's name.
+          # Each is read back through the file it was built from, so an edit
+          # that matched nothing is red here rather than an arm refused for the
+          # wrong reason.
+          retree() {
+            blob="$(sed -E "$1" pyproject.toml | git hash-object -w --stdin)"
+            git ls-tree HEAD \
+              | awk -v b="$blob" -F '\t' '$2 == "pyproject.toml" { sub(/[0-9a-f]+$/, b, $1) } { print $1 "\t" $2 }' \
+              | git mktree
+          }
+          commit_with() { git commit-tree "$(retree "$1")" -p HEAD -m "$2"; }
+          ARM="0.0.0+refusal-arm"
+          bumped="$(commit_with "s/^version = \"[^\"]*\"\$/version = \"${ARM}\"/" "pyproject.toml at version ${ARM}")"
+          unversioned="$(commit_with '/^version = "[^"]*"$/d' "pyproject.toml with no version")"
+          decoyed="$(commit_with '1i [tool.refusal-arm]\nversion = "0.0.0+decoy"\n' "another table's version ahead of [project]'s")"
+          git show "${bumped}:pyproject.toml" | grep -x "version = \"${ARM}\"" \
+            || { echo "::error::The bumped commit's pyproject.toml does not say ${ARM}."; exit 1; }
+          if git show "${unversioned}:pyproject.toml" | grep -E '^version[[:space:]]*='; then
+            echo "::error::The unversioned commit's pyproject.toml still names a version."
+            exit 1
+          fi
+          git show "${decoyed}:pyproject.toml" | grep -E '^version[[:space:]]*=' > "$RUNNER_TEMP/decoyed.txt"
+          [ "$(head -n 1 "$RUNNER_TEMP/decoyed.txt")" = 'version = "0.0.0+decoy"' ] && [ "$(wc -l < "$RUNNER_TEMP/decoyed.txt")" -eq 2 ] \
+            || { echo "::error::The decoyed commit's pyproject.toml does not carry the decoy first and [project]'s version second."; cat "$RUNNER_TEMP/decoyed.txt"; exit 1; }
+
+          # Signed, by the throwaway key: the gate runs this check only after
+          # verify-tag.sh has admitted a signed tag object, so that is the
+          # shape every version arm presents.
+          sign v0.0.0-mismatch -m "this job's own commit under another version's name" HEAD
+          sign "v${ARM}" -m "named for its commit's version" "$bumped"
+          sign "v${ARM}-rc1" -m "begins with its commit's v<version>" "$bumped"
+          sign "v${ARM%-arm}" -m "a proper prefix of its commit's v<version>" "$bumped"
+          sign v0.0.0-unversioned -m "a commit with no version" "$unversioned"
+          sign v0.0.0+decoy -m "named for another table's version" "$decoyed"
+          for t in v0.0.0-mismatch "v${ARM}" "v${ARM}-rc1" "v${ARM%-arm}" v0.0.0-unversioned v0.0.0+decoy; do
+            [ "$(git cat-file -t "refs/tags/$t")" = tag ] || { echo "::error::$t is not a tag object."; exit 1; }
+          done
+
+          # A python3 and a python that both fail, for the arm whose parser
+          # cannot run.
+          mkdir "$RUNNER_TEMP/nopython"
+          printf '#!/bin/sh\nexit 1\n' > "$RUNNER_TEMP/nopython/python3"
+          cp "$RUNNER_TEMP/nopython/python3" "$RUNNER_TEMP/nopython/python"
+          chmod +x "$RUNNER_TEMP/nopython/python3" "$RUNNER_TEMP/nopython/python"
+
+          echo "this job's own version, which v0.0.0-mismatch must not be named for:"
+          git show "HEAD:pyproject.toml" | grep -E '^version[[:space:]]*='
+          git for-each-ref --format='%(refname) %(objecttype) %(tag)' refs/tags
+
+      - name: "Refused: an unsigned annotated tag (exit 4)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-unsigned "$RUNNER_TEMP/throwaway_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 4 ] || { echo "::error::An unsigned annotated tag exited $got, expected 4."; exit 1; }
+          echo "Refused with 4, as built."
+
+      - name: "Refused: an SSH line followed by a gpg signature (exit 4)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-decoy "$RUNNER_TEMP/throwaway_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 4 ] || { echo "::error::A gpg signature behind an SSH line exited $got, expected 4."; exit 1; }
+          echo "Refused with 4, as built."
+
+      - name: "Refused: a lightweight tag (exit 3)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-lightweight "$RUNNER_TEMP/throwaway_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 3 ] || { echo "::error::A lightweight tag exited $got, expected 3."; exit 1; }
+          echo "Refused with 3, as built."
+
+      # The "any other signer" refusal, shown without the real file: the tag is
+      # the one the admitted arm below admits, and the file names a key that
+      # did not sign it. The same refusal against the real file is the last
+      # arm but one, and needs a key in it.
+      - name: "Refused: a tag signed by a key the file handed over does not name (exit 5)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-signed "$RUNNER_TEMP/other_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 5 ] || { echo "::error::A tag signed by a key the file does not name exited $got, expected 5."; exit 1; }
+          echo "Refused with 5, as built."
+
+      - name: "Refused: a signature made for another tag (exit 6)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-moved "$RUNNER_TEMP/throwaway_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 6 ] || { echo "::error::A moved signature exited $got, expected 6."; exit 1; }
+          echo "Refused with 6, as built."
+
+      - name: "Refused: a signed tag with no summary line (exit 7)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-nosummary "$RUNNER_TEMP/throwaway_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 7 ] || { echo "::error::A tag with no summary exited $got, expected 7."; exit 1; }
+          echo "Refused with 7, as built."
+
+      - name: "Refused: an allowed-signers file that is not there (exit 2)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-signed "$RUNNER_TEMP/absent_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 2 ] || { echo "::error::A missing allowed-signers file exited $got, expected 2."; exit 1; }
+          echo "Refused with 2, as built."
+
+      - name: "Refused: an allowed-signers file that names no key (exit 2)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-signed "$RUNNER_TEMP/keyless_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 2 ] || { echo "::error::An allowed-signers file with no key exited $got, expected 2."; exit 1; }
+          echo "Refused with 2, as built."
+
+      - name: "Admitted: a tag signed by a key the file names (exit 0)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-signed "$RUNNER_TEMP/throwaway_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 0 ] || { echo "::error::A tag signed by a trusted key exited $got, expected 0."; exit 1; }
+          echo "Admitted, as built."
+
+      - name: "Refused: a tag not named for its commit's version (exit 5)"
+        run: |
+          set +e
+          bash .github/release/check-version.sh v0.0.0-mismatch
+          got=$?
+          set -e
+          [ "$got" -eq 5 ] || { echo "::error::A tag named for another version exited $got, expected 5."; exit 1; }
+          echo "Refused with 5, as built."
+
+      - name: "Refused: a tag that only begins with its commit's version (exit 5)"
+        run: |
+          set +e
+          bash .github/release/check-version.sh "v0.0.0+refusal-arm-rc1"
+          got=$?
+          set -e
+          [ "$got" -eq 5 ] || { echo "::error::A tag that only begins with v and the version exited $got, expected 5."; exit 1; }
+          echo "Refused with 5, as built."
+
+      - name: "Refused: a tag that is a proper prefix of its commit's version (exit 5)"
+        run: |
+          set +e
+          bash .github/release/check-version.sh "v0.0.0+refusal"
+          got=$?
+          set -e
+          [ "$got" -eq 5 ] || { echo "::error::A tag that v and the version only begin with exited $got, expected 5."; exit 1; }
+          echo "Refused with 5, as built."
+
+      - name: "Refused: a tag named for another table's version (exit 5)"
+        run: |
+          set +e
+          bash .github/release/check-version.sh "v0.0.0+decoy"
+          got=$?
+          set -e
+          [ "$got" -eq 5 ] || { echo "::error::A tag named for a version outside [project] exited $got, expected 5: the file was read by line, not parsed."; exit 1; }
+          echo "Refused with 5, as built."
+
+      - name: "Refused: a commit whose pyproject.toml names no version (exit 4)"
+        run: |
+          set +e
+          bash .github/release/check-version.sh v0.0.0-unversioned
+          got=$?
+          set -e
+          [ "$got" -eq 4 ] || { echo "::error::A commit with no version exited $got, expected 4."; exit 1; }
+          echo "Refused with 4, as built."
+
+      - name: "Refused: a version check on a tag that is not there (exit 3)"
+        run: |
+          set +e
+          bash .github/release/check-version.sh v0.0.0-absent
+          got=$?
+          set -e
+          [ "$got" -eq 3 ] || { echo "::error::An absent tag exited $got, expected 3."; exit 1; }
+          echo "Refused with 3, as built."
+
+      - name: "Refused: a version check whose parser cannot run (exit 64)"
+        run: |
+          set +e
+          PATH="$RUNNER_TEMP/nopython:$PATH" bash .github/release/check-version.sh "v0.0.0+refusal-arm"
+          got=$?
+          set -e
+          [ "$got" -eq 64 ] || { echo "::error::A version check with no working parser exited $got, expected 64."; exit 1; }
+          echo "Refused with 64, as built."
+
+      - name: "Admitted: a tag named v and its commit's version (exit 0)"
+        run: |
+          set +e
+          bash .github/release/check-version.sh "v0.0.0+refusal-arm"
+          got=$?
+          set -e
+          [ "$got" -eq 0 ] || { echo "::error::A tag named for its commit's version exited $got, expected 0."; exit 1; }
+          echo "Admitted, as built."
+
+      # From here on the real file must name a key. The positive control for
+      # it: the keys it names, by fingerprint. A key is found by its type
+      # token rather than its position, because the options field is
+      # optional.
+      - name: The keys .github/allowed_signers names
+        run: |
+          awk '!/^[[:space:]]*(#|$)/ {
+                 for (i = 2; i < NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) { print $1, $i, $(i + 1); next }
+                 print $1, "-", "-"
+               }' "$SIGNERS" > "$RUNNER_TEMP/named.txt"
+          named=0
+          while read -r principal type key; do
+            printf '%s %s\n' "$type" "$key" > "$RUNNER_TEMP/named.pub"
+            printf '%s ' "$principal"
+            ssh-keygen -l -f "$RUNNER_TEMP/named.pub"
+            named=$((named + 1))
+          done < "$RUNNER_TEMP/named.txt"
+          if [ "$named" -lt 1 ]; then
+            echo "::error::$SIGNERS names no key, so no tag can verify and nothing can be released. The two arms after this step were not run."
+            exit 1
+          fi
+          [ -s "$RUNNER_TEMP/real_shape_signers" ] || { echo "::error::No line of $SIGNERS could be reshaped."; exit 1; }
+
+      - name: "Refused: a tag signed by a key the file does not name (exit 5)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-signed "$SIGNERS"
+          got=$?
+          set -e
+          [ "$got" -eq 5 ] || { echo "::error::A tag signed by another key exited $got, expected 5."; exit 1; }
+          echo "Refused with 5, as built."
+
+      - name: "Admitted: the real file's lines, with the throwaway key (exit 0)"
+        run: |
+          set +e
+          bash "$VERIFY" v0.0.0-signed "$RUNNER_TEMP/real_shape_signers"
+          got=$?
+          set -e
+          [ "$got" -eq 0 ] || { echo "::error::The real file's shape with a trusted key exited $got, expected 0: a line ssh-keygen will never match."; exit 1; }
+          echo "Admitted, as built."

@@ -1,0 +1,30 @@
+version: 2
+
+updates:
+  # Every third-party action is pinned to a forty-character commit with its
+  # version as a trailing comment, and a pin needs a mover. Grouped and
+  # monthly, so a month's bumps arrive as one pull request read as a diff of
+  # commit hashes and version comments; the `third-party pins` job is what
+  # makes that reading mean something.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  # `pip`, for `/scripts` only: the two requirement files there pin the tools
+  # the `power of ten` and `pull request target` jobs install, and each pin
+  # has a mover. Both files are vendored copies (see the head of
+  # `.github/workflows/checks.yml`), so a bump lands here as a pull request
+  # and this copy differs from the ones the other public repositories carry
+  # until they take the same bump.
+  - package-ecosystem: pip
+    directory: /scripts
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"

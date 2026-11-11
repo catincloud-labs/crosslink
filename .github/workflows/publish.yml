@@ -1,0 +1,494 @@
+name: publish
+
+# The release path for this repository, and the only one: a signed `v*` tag
+# becomes an upload to PyPI as `catincloud-crosslink` and then a GitHub
+# release, both from this file. A merge cannot release.
+#
+# THIS FILE'S NAME IS LOAD-BEARING, AND SO ARE TWO JOBS' ENVIRONMENTS. The
+# trusted publishers on pypi.org and test.pypi.org are registered for
+# repository `catincloud-labs/crosslink`, workflow `publish.yml`, and
+# environment `pypi` or `testpypi`. An upload from any other file, or from a
+# job in another environment, is refused by the index. A workflow cannot
+# `needs:` another workflow's jobs, so every check that gates an upload runs in
+# this file's run: the tag checks and the suite at the tag are
+# `.github/workflows/release.yml`, CALLED here as the `gate` job, and the rest
+# are jobs below.
+#
+# ONE WORKFLOW PER TAG. `release.yml` does not start on a tag push; it runs on
+# pull requests and on `main` by its own triggers, and on a tag only when this
+# file calls it. So one `v*` tag starts one run, and only this file's `release`
+# job creates the GitHub release, after the upload.
+#
+# ON A `v*` TAG, in order:
+#   gate     (release.yml) the tag's SSH signature against
+#            `.github/allowed_signers`, the tag's name against the version
+#            `pyproject.toml` carries at the tagged commit, both shown refusing
+#            tags built wrong, and the suite at the tag.
+#   identity the provenance check below, shown refusing another publisher's
+#            provenance and admitting the same shape naming this one, and the
+#            read-back the upload jobs run, shown refusing the same way.
+#   build    the sdist, and the wheel built from it, read back by
+#            `.github/release/check-dist.py` after that check is shown
+#            refusing, and judged by the stranger arms in
+#            `.github/strangers/arms.py`.
+#   publish  needs all three, waits on the `pypi` environment's reviewer,
+#            uploads exactly the files `build` judged, and reads back their
+#            provenance and their digests from the index.
+#   release  needs `publish`: the GitHub release for the tag.
+# Every check that can refuse a version runs before the upload, because an
+# uploaded version number is spent, even after its file is deleted. The only
+# checks after it are read-backs, and a red one over a green upload is the
+# honest report: the version is on PyPI and did not read back as expected.
+#
+# ON A PULL REQUEST: `identity` and `build`, so the distribution is built, read
+# back and judged on every change before a tag depends on it.
+#
+# BY HAND (`Actions => publish => Run workflow`, on `main`): `build` stamps a
+# development version, `0.1.0.dev<run number>` for a tree at `0.1.0`, and
+# `rehearse` uploads it to TestPyPI from the `testpypi` environment, whose
+# reviewer must approve, then reads it back the same way; `rehearse-arms` runs
+# the stranger arms against the wheel TestPyPI serves. A development version
+# sorts below the release it is derived from, so it never shadows it.
+#
+# ONLY A PUBLIC REPOSITORY UPLOADS. `rehearse` and `publish` do not run in a
+# private one: a provenance names the repository and the run that made the
+# file, and a reader cannot follow either into a repository they cannot open.
+#
+# NO INDEX TOKEN IS STORED ANYWHERE. Each upload job holds `id-token: write`,
+# for trusted publishing, and `contents: read`, and nothing else. The upload is
+# `pypa/gh-action-pypi-publish`, pinned to a commit, because it generates PEP
+# 740 attestations under trusted publishing and `uv publish` does not, and an
+# attestation attaches only at upload.
+#
+# WHAT THIS DOES NOT PROVE:
+#   - The provenance check reads the publisher the index stored beside each
+#     attestation. It does not verify the attestations' signatures itself.
+#   - A green rehearsal is evidence about the TestPyPI publisher alone. PyPI's
+#     is a separate registration, and nothing here reads it before the tag.
+#   - Nothing here reads whether the name or the version is free on the index
+#     before the upload. An index refuses a version it already holds, which
+#     spends nothing; a name someone else took first is read by hand.
+#   - A red read-back after a green upload withholds the GitHub release.
+#     Re-running `publish` uploads the same files again, and whether the index
+#     answers a byte-identical re-upload as success is not read here. The
+#     remedy that needs no re-upload is `gh release create <tag> --verify-tag`
+#     by hand, once the files on the index have been read.
+#   - Nothing here shows the private-repository condition on the upload jobs
+#     stopping an upload: `build` prints the value it tests, and no more.
+#   - Everything `gate` says it does not prove (`release.yml`'s header).
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time per ref, and a run in progress is never cancelled: a run
+# cancelled between the upload and its read-back would leave a spent version
+# unread. A run still pending when a newer one joins the group is cancelled by
+# GitHub, before it has uploaded anything.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PROJECT: catincloud-crosslink
+  PACKAGE: crosslink
+  PUBLISHER_REPOSITORY: catincloud-labs/crosslink
+  PUBLISHER_WORKFLOW: publish.yml
+
+# No job here is named `tests`, or anything else a required check matches, for
+# the reason `release.yml` gives.
+jobs:
+  gate:
+    name: release checks
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: read
+
+  # The check every upload job runs on what the index stored, run first on
+  # provenances that must be refused. The foreign one is a real provenance
+  # pypi.org stored for a file another publisher uploaded, `catincloud-ration`'s
+  # 0.2.1 wheel; every arm that writes a provenance is derived from it, so each
+  # has the shape an index answers. That publisher's workflow file and
+  # environment have the same names as this one's, so the foreign provenance is
+  # refused for its repository alone. Run for both environments, because both
+  # upload jobs trust it.
+  identity:
+    name: the identity check refuses
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FOREIGN: https://pypi.org/integrity/catincloud-ration/0.2.1/catincloud_ration-0.2.1-py3-none-any.whl/provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Another publisher's provenance, as pypi.org stored it
+        run: |
+          code=$(curl -sS -o "$RUNNER_TEMP/foreign.json" -w '%{http_code}' "$FOREIGN") || code=000
+          if [ "$code" != "200" ]; then
+            echo "::error::${FOREIGN} answered HTTP ${code}, so there is no foreign provenance to refuse."
+            exit 1
+          fi
+
+      - name: "Refused: each provenance naming another publisher, for pypi"
+        run: >-
+          python3 .github/release/provenance-arms.py --foreign "$RUNNER_TEMP/foreign.json"
+          --repository "$PUBLISHER_REPOSITORY" --workflow "$PUBLISHER_WORKFLOW"
+          --environment pypi --work "$RUNNER_TEMP/arms-pypi"
+
+      - name: "Refused: each provenance naming another publisher, for testpypi"
+        run: >-
+          python3 .github/release/provenance-arms.py --foreign "$RUNNER_TEMP/foreign.json"
+          --repository "$PUBLISHER_REPOSITORY" --workflow "$PUBLISHER_WORKFLOW"
+          --environment testpypi --work "$RUNNER_TEMP/arms-testpypi"
+
+      # The read-back the upload jobs run after an upload, where a defect would
+      # first show with a version already spent, run here against another
+      # publisher's real files: refused for its publisher, refused for one
+      # altered digest, then admitted under its own publisher.
+      - name: "Refused: the read-back of another publisher's files"
+        run: bash .github/release/read-back-arms.sh
+
+  # The files an upload job uploads, and the only place they are made. `python
+  # -m build` makes the sdist and then the wheel FROM that sdist, so the wheel
+  # judged here is one the sdist reproduces. The upload jobs compare what they
+  # upload with the digests this job reports.
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.files.outputs.version }}
+      sums: ${{ steps.files.outputs.sums }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+
+      # The value `rehearse` and `publish` test, printed where every run shows
+      # it, through the environment and never interpolated into the script.
+      - name: Whether this repository is private, which stops the upload jobs
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          echo "github.event.repository.private: '${PRIVATE}'"
+          case "$PRIVATE" in
+            true) echo "The upload jobs do not run from this repository." ;;
+            false) echo "The upload jobs may run from this repository, on a tag or by hand." ;;
+            *) echo "::error::The event names no repository visibility, so the upload jobs' condition is unread."; exit 1 ;;
+          esac
+
+      # A rehearsal uploads a version no release will carry, so it can be
+      # dispatched again. A re-run of the same run keeps its run number, and so
+      # its version, which the index already holds. The tree writes its version
+      # twice, in `pyproject.toml` and as `crosslink.__version__`, and both are
+      # stamped, because `check-dist.py` below refuses a wheel where they
+      # differ. The base is read, not written here, and a stamp that matched
+      # nothing stops the job rather than rehearsing the real number.
+      - name: A development version, for a rehearsal only
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          base="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          dev="${base}.dev${GITHUB_RUN_NUMBER}"
+          stamp() {
+            file="$1" key="$2"
+            [ "$(grep -cx "${key} = \"${base}\"" "$file")" -eq 1 ] \
+              || { echo "::error::${file} has no single line ${key} = \"${base}\" to stamp."; exit 1; }
+            sed -i "s/^${key} = \"${base}\"\$/${key} = \"${dev}\"/" "$file"
+            grep -qx "${key} = \"${dev}\"" "$file" \
+              || { echo "::error::${file} was not stamped ${dev}."; exit 1; }
+          }
+          stamp pyproject.toml version
+          stamp "src/${PACKAGE}/__init__.py" __version__
+          echo "Rehearsing as ${dev}; the tree's version is ${base}."
+
+      - name: The sdist, and the wheel built from it
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build==1.6.1 twine==7.0.0
+          python -m build --outdir dist .
+          ls -l dist
+
+      # Exactly these two names, or an upload job would be uploading a guess.
+      - name: Two files, named for the version
+        id: files
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          want="$(printf '%s\n' "catincloud_crosslink-${version}-py3-none-any.whl" "catincloud_crosslink-${version}.tar.gz" | sort)"
+          got="$(ls dist | sort)"
+          if [ "$got" != "$want" ]; then
+            echo "::error::dist holds:"; echo "$got"
+            echo "::error::expected exactly:"; echo "$want"
+            exit 1
+          fi
+          {
+            echo "version=${version}"
+            echo "sums<<SUMS_END"
+            (cd dist && sha256sum -- *)
+            echo "SUMS_END"
+          } >> "$GITHUB_OUTPUT"
+          (cd dist && sha256sum -- *)
+
+      # What the project page will show and what an install will fetch, read
+      # from the files rather than from pyproject.toml, because the build
+      # backend assembles the metadata. The check is shown refusing first: a
+      # pair of files per refusal, each wrong in one way, and one built right.
+      - name: "Refused: each wheel and sdist built wrong"
+        run: python .github/release/check-dist.py --arms
+
+      - name: The metadata the files carry
+        run: |
+          python -m twine check --strict dist/*
+          python .github/release/check-dist.py dist --project "$PROJECT" --package "$PACKAGE"
+
+      # The contract judged from where a stranger meets it: the wheel an
+      # upload job will upload, in a fresh virtual environment outside the
+      # tree, with the one extra the contract needs. The second environment
+      # holds the wheel with no extra, and shows what the extra is for.
+      - name: Two fresh virtual environments outside the tree, with the wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/stranger"
+          "$RUNNER_TEMP/stranger/bin/python" -m pip install "$(ls dist/*.whl)[conformance]"
+          "$RUNNER_TEMP/stranger/bin/python" -m pip list
+          python -m venv "$RUNNER_TEMP/bare"
+          "$RUNNER_TEMP/bare/bin/python" -m pip install "$(ls dist/*.whl)"
+          "$RUNNER_TEMP/bare/bin/python" -m pip list
+
+      - name: Stranger-shaped projects, each asserted by its exit code
+        run: >-
+          python .github/strangers/arms.py --python "$RUNNER_TEMP/stranger/bin/python"
+          --bare "$RUNNER_TEMP/bare/bin/python" --work "$RUNNER_TEMP/strangers"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  rehearse:
+    name: rehearse
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      && github.event.repository.private == false
+    needs: [identity, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Not `pypi`: a trusted publisher matches on the environment's name, so the
+    # rehearsal and the release are two identities, kept apart where the index
+    # enforces it.
+    environment: testpypi
+    permissions:
+      # Job-level permissions replace the workflow's, so `contents: read` is
+      # restated or checkout is refused.
+      contents: read
+      id-token: write
+    env:
+      INDEX: https://test.pypi.org
+      ENVIRONMENT: testpypi
+      VERSION: ${{ needs.build.outputs.version }}
+      SUMS: ${{ needs.build.outputs.sums }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - name: The files are the ones build judged
+        run: |
+          printf '%s\n' "$SUMS" > "$RUNNER_TEMP/sums.txt"
+          (cd dist && sha256sum --strict -c "$RUNNER_TEMP/sums.txt")
+          [ "$(ls dist | wc -l)" -eq "$(grep -c . "$RUNNER_TEMP/sums.txt")" ] \
+            || { echo "::error::dist holds files build did not judge."; ls -l dist; exit 1; }
+          case "$VERSION" in
+            *.dev*) ;;
+            *) echo "::error::${VERSION} is not a development version, and a rehearsal uploads only those."; exit 1 ;;
+          esac
+
+      - name: Upload to TestPyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          attestations: true
+          print-hash: true
+
+      - name: The index stored each file's provenance, naming this publisher
+        run: bash .github/release/read-back.sh
+
+  # After the upload, and without the upload's token: the wheel TestPyPI
+  # serves, compared with the digest `build` reported, installed into fresh
+  # virtual environments with its dependencies from PyPI, and judged by the
+  # arms.
+  rehearse-arms:
+    name: rehearse, the arms against the files TestPyPI serves
+    needs: [build, rehearse]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      SUMS: ${{ needs.build.outputs.sums }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+
+      - name: The wheel TestPyPI serves, by its digest
+        run: |
+          wheel="catincloud_crosslink-${VERSION}-py3-none-any.whl"
+          want="$(printf '%s\n' "$SUMS" | awk -v f="$wheel" '$2 == f { print $1 }')"
+          [ -n "$want" ] || { echo "::error::build reported no digest for ${wheel}."; exit 1; }
+          curl -sS -o "$RUNNER_TEMP/release.json" "https://test.pypi.org/pypi/${PROJECT}/${VERSION}/json"
+          url="$(python -c 'import json, sys; d = json.load(open(sys.argv[1])); print(next(u["url"] for u in d["urls"] if u["filename"] == sys.argv[2]))' "$RUNNER_TEMP/release.json" "$wheel")"
+          mkdir -p "$RUNNER_TEMP/served"
+          curl -sS -o "$RUNNER_TEMP/served/${wheel}" "$url"
+          echo "${want}  ${RUNNER_TEMP}/served/${wheel}" | sha256sum --strict -c
+          echo "served: ${url}"
+
+      - name: Two fresh virtual environments outside the tree, with the served wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/stranger"
+          "$RUNNER_TEMP/stranger/bin/python" -m pip install "$(ls "$RUNNER_TEMP"/served/*.whl)[conformance]"
+          "$RUNNER_TEMP/stranger/bin/python" -m pip list
+          python -m venv "$RUNNER_TEMP/bare"
+          "$RUNNER_TEMP/bare/bin/python" -m pip install "$(ls "$RUNNER_TEMP"/served/*.whl)"
+          "$RUNNER_TEMP/bare/bin/python" -m pip list
+
+      - name: Stranger-shaped projects, each asserted by its exit code
+        run: >-
+          python .github/strangers/arms.py --python "$RUNNER_TEMP/stranger/bin/python"
+          --bare "$RUNNER_TEMP/bare/bin/python" --work "$RUNNER_TEMP/strangers"
+
+  publish:
+    name: publish
+    # A push of the tag, never a run started by hand on one: a dispatch on a
+    # tag ref would otherwise reach this job, and be stopped only because
+    # `build` stamps a development version on a dispatch.
+    if: >-
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      && github.event.repository.private == false
+    needs: [gate, identity, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The reviewer's approval is the last moment at which nothing is uploaded.
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      INDEX: https://pypi.org
+      ENVIRONMENT: pypi
+      VERSION: ${{ needs.build.outputs.version }}
+      SUMS: ${{ needs.build.outputs.sums }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      # `gate` read the tag against pyproject.toml at the tagged commit; this
+      # reads it against the files, which `build` named for the version it
+      # built.
+      - name: The files are the ones build judged, named for the tag
+        run: |
+          printf '%s\n' "$SUMS" > "$RUNNER_TEMP/sums.txt"
+          (cd dist && sha256sum --strict -c "$RUNNER_TEMP/sums.txt")
+          [ "$(ls dist | wc -l)" -eq "$(grep -c . "$RUNNER_TEMP/sums.txt")" ] \
+            || { echo "::error::dist holds files build did not judge."; ls -l dist; exit 1; }
+          if [ "v${VERSION}" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::build made ${VERSION}, and the tag is ${GITHUB_REF_NAME}. Nothing has been uploaded."
+            exit 1
+          fi
+
+      - name: Upload to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          attestations: true
+          print-hash: true
+
+      - name: The index stored each file's provenance, naming this publisher
+        run: bash .github/release/read-back.sh
+
+  # The one job that may write, and its one write is a release on a tag that
+  # already exists: `--verify-tag` refuses to mint one, and a minted tag would
+  # start this workflow again. After `publish`, so a GitHub release never
+  # claims a version the index does not hold.
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [gate, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERIFIED: ${{ needs.gate.outputs.tag-object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Create the release for this tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          # First, before anything can read as satisfied: the tag on the remote
+          # must still be the object `gate` verified. A tag deleted and pushed
+          # again names a new object, and this run verified the old one.
+          REMOTE="$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" --jq '.object.sha')"
+          if [ -z "$VERIFIED" ] || [ "$REMOTE" != "$VERIFIED" ]; then
+            echo "::error::refs/tags/${TAG} is ${REMOTE:-absent} on the remote, and this run verified '${VERIFIED}'. The version is on PyPI; no GitHub release has been created."
+            exit 1
+          fi
+
+          # A re-run treats an existing release as satisfied: the contract is
+          # "the tag has a release", which an earlier attempt may have met.
+          if gh release view "$TAG" --json name >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists - satisfied."
+            exit 0
+          fi
+
+          # `gate` refused an empty summary already (exit 7); read again here
+          # because this job uses it.
+          SUMMARY="$(git tag -l --format='%(contents:subject)' "$TAG")"
+          if [ -z "$SUMMARY" ]; then
+            echo "::error::${TAG}'s annotation has no first line, so there is no hand-written summary for the release."
+            exit 1
+          fi
+          RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            printf '%s\n\n' "$SUMMARY"
+            printf 'The tag signature was verified against `.github/allowed_signers`, the tag was read as named for the version in `pyproject.toml`, both checks were shown refusing tags built wrong, and the suite passed at %s, in %s. The same run uploaded the distribution to PyPI and read its provenance back: https://pypi.org/project/%s/%s/\n\n' "$GITHUB_SHA" "$RUN" "$PROJECT" "${TAG#v}"
+            printf 'To check the tag yourself, from a clone at this tag:\n\n'
+            printf '    bash .github/release/verify-tag.sh %s .github/allowed_signers\n' "$TAG"
+            printf '    bash .github/release/check-version.sh %s\n' "$TAG"
+          } > "$RUNNER_TEMP/release-body.md"
+
+          if ! gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/release-body.md"; then
+            if gh release view "$TAG" --json name >/dev/null 2>&1; then
+              echo "Release ${TAG} appeared concurrently - satisfied."
+              exit 0
+            fi
+            echo "::error::Could not create the release for ${TAG}. The version is on PyPI."
+            exit 1
+          fi

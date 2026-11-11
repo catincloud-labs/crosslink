@@ -1,0 +1,147 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+# The distribution is `catincloud-crosslink` and the import name is
+# `crosslink`. The bare name `crosslink` on PyPI is an unrelated project that
+# installs a top-level `crosslink` package of its own, so the two cannot
+# share an environment (README, "Installing").
+name = "catincloud-crosslink"
+version = "0.1.0"
+description = "A project format reduced from an orchestrated asset graph, and the write path back to it"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "David Anaya" }]
+keywords = ["asset-graph", "dagster", "dbt", "project-format", "conformance", "drift"]
+# `3 - Alpha` claims no stability: while the major version is 0, a release
+# may change what the contract decides (README, "Releases"). The
+# Python versions are the ones CI runs the suite on: the floor, in the `tests`
+# job, and 3.13, in `tests (3.13)`. There is no `License ::` classifier, which
+# PEP 639 excludes beside the SPDX expression in `license` above; the built
+# metadata carries that as `License-Expression`.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Testing",
+]
+
+# Near-dependency-free by construction: the model, the protocol, the
+# construction contract and the conformance suite import nothing but the
+# standard library and a YAML parser.
+dependencies = ["pyyaml>=6.0"]
+
+# NO `dagster` extra, deliberately. `dagster-dex`, which shares this package's
+# read side (`src/crosslink/PROVENANCE.md`), declares one, but this package
+# never imports dagster - `from_asset_graph` is duck-typed and accepts anything
+# shaped like a set of asset definitions, which is why the whole suite passes
+# with nothing orchestrator-side installed. Declaring an extra for a
+# distribution nothing imports would assert a coupling that does not exist, and
+# a dependency claim that no code backs is the kind of thing that reads as
+# evidence later. Add one the day something here actually imports dagster.
+#
+# (For the record, when that day comes: dagster declares <3.15,>=3.10, so this
+# package's >=3.12 floor sits inside it with three usable versions: 3.12,
+# 3.13 and 3.14.)
+#
+# THE FLOOR IS 3.12, AND A JOB RUNS ON IT. A floor nothing runs on is a claim
+# with no check, so `checks.yml`'s `tests` job runs the suite with
+# `--python 3.12`, and `tests (3.13)` runs it one version up. Raise the floor
+# only together with that job.
+[project.optional-dependencies]
+# What a stranger installs to judge a format of their own. The contract ships
+# inside the package, as `crosslink.conformance`, and that module imports
+# pytest when it loads; nothing else in the package does. So pytest is this
+# extra and not a dependency: `import crosslink` imports neither pytest nor
+# the contract, and an install that only reduces a graph never carries the
+# framework that judges a format. The `build` job in
+# `.github/workflows/publish.yml` shows both halves from the built wheel.
+conformance = ["pytest>=8.4"]
+# What this repository's own suite installs, and the name CI and
+# `CONTRIBUTING.md` run it by. The suite needs what the contract needs and
+# nothing more, so this is the extra above by reference and the pytest floor
+# is written once. A dependency only the suite needs is added here.
+test = ["catincloud-crosslink[conformance]"]
+# The model-backed proposer's SDK, and nothing else's: `crosslink.generate`
+# imports it lazily, on the one path that constructs a client, so the core -
+# suite included - runs with nothing model-side installed. An extra rather
+# than a dependency for the same reason there is no `dagster` extra ABOVE
+# this line: the coupling a package declares should be exactly the coupling
+# its code has.
+generate = ["anthropic>=1.0"]
+# The two processes, `crosslink.serve` and `crosslink.produce`, and nothing
+# else: the comparer decodes the frame before the envelope and the producer
+# builds the frame and publishes, so both import `ration`, and the library
+# root never does. An extra and not a dependency for the reason the two above
+# give -- the coupling a package declares should be exactly the coupling its
+# code has, and only those two modules have this one.
+#
+# `ration` is named as `catincloud-ration` at one exact version: the
+# distribution the public `catincloud-labs/ration` uploads to PyPI from its
+# release tags. The import name is still `ration`. Every installer resolves
+# the same version: `pip` and `uv` read the same requirement, and `uv.lock`
+# holds the files' hashes for `uv`. A bare `ration` would be resolved from
+# the same index, where an unrelated project holds that name (PyPI's `ration`
+# 0.1.3, read 2026-11-01), so the name alone is a dependency-confusion hole
+# and the distribution's own name is what closes it. An index requirement and
+# not a git reference, so that this package's own metadata names no direct
+# reference, which an index refuses at upload. Resolving this extra needs no
+# credential, on a workstation or in CI.
+#
+# There is no `[tool.uv.sources]` entry for it. Only `uv` reads that table,
+# and when it names a different source from the requirement `uv` takes the
+# table's and `pip` the requirement's, so a second copy of the pin could
+# split the two installers without an error. Without the table, `uv lock`
+# locks this same version from the requirement.
+#
+# The suite exercises the codec at the version the requirement below names
+# and at no other, so whoever runs `crosslink.serve` or `crosslink.produce`
+# runs them against that release of `ration`, and moves the two together.
+# The version is the one uploaded from that repository's tag of the same
+# number.
+service = ["catincloud-ration==0.2.1"]
+
+# Each one a URL of this repository, which PyPI checks against the trusted
+# publisher and shows under its verified details.
+[project.urls]
+Homepage = "https://github.com/catincloud-labs/crosslink"
+Repository = "https://github.com/catincloud-labs/crosslink"
+Issues = "https://github.com/catincloud-labs/crosslink/issues"
+Changelog = "https://github.com/catincloud-labs/crosslink/blob/main/CHANGELOG.md"
+
+# No requirement in this file is a direct reference, and nothing here lets
+# one in: hatchling refuses to build metadata that holds one unless
+# `allow-direct-references` is set, and an index refuses the upload. The
+# `build` job in `.github/workflows/publish.yml` reads the built wheel for a
+# requirement that names a URL.
+
+# A file that records what a document used to say is the checkout's, not
+# the distribution's, wherever it sits. The `build` job reads both files for
+# one.
+[tool.hatch.build]
+exclude = ["*.history.md"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crosslink"]
+
+# The sdist carries what a wheel is built from and what a reader of the
+# package is pointed at: the package, with the contract and its calibration
+# inside it, `pyproject.toml`, the README the metadata names and the licence.
+# The rest of the tree, this repository's own tests, its CI and its
+# governance, is the checkout's, not the distribution's.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/crosslink",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,440 @@
+name: checks
+
+# `edited` is here on purpose. A body edit is the normal way an unacknowledged
+# close gets introduced or removed, so without it a corrected body never
+# re-runs and a broken one never re-checks. `synchronize` covers pushes to the
+# branch.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  # `issues: read` is what makes `closingIssuesReferences` return anything at
+  # all. Without it the field resolves to an EMPTY LIST rather than erroring,
+  # and the reconcile step reads that as "merging this closes nothing" -- so
+  # the check cannot tell *no closing reference* from *cannot see one*. The
+  # silent half is the dangerous one: a stray closing keyword under an
+  # `Autoclose: none` trailer reconciles CLEAN, because a blind "nothing"
+  # agrees with a trailer claiming nothing.
+  issues: read
+
+# The job names below are load-bearing. `markdown`, `closing keywords`,
+# `tests` and `adr preconditions` are required status checks, and a required
+# check is matched by its context string and nothing else. A rename does not
+# fail -- the check simply never reports, and a check that never reports never
+# passes, so every merge waits on a context nothing will ever send.
+#
+# EVERY CHECK HERE RUNS FROM THIS REPOSITORY'S OWN TREE, with the token GitHub
+# gives the run and no other secret. The `check_*.py` guards under `scripts/`,
+# their `test_check_*.py` self-tests and their two requirement files are
+# vendored copies: each is the file this organisation's other public
+# repositories carry under the same name, and `AGENTS.md` says how to compare
+# them. Do not edit them here. Nothing in this repository compares a copy
+# with another, so the cost is stated rather than discovered: an edit that
+# makes a copy differ is not blocked on the pull request that introduces
+# it. `scripts/adr_preconditions.py`
+# is the one script written for this tree, and it is edited here. Each guard's
+# self-test runs before the guard, so a checker that has silently stopped
+# detecting anything goes red here rather than passing everything.
+jobs:
+  markdown:
+    name: markdown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The config is passed explicitly and lives at `.github/markdownlint.json`
+      # rather than at the root, where it would be auto-discovered and read as a
+      # decision this repository made. It is the file this organisation's
+      # other public repositories carry at the same path.
+      # Without `--config` the CLI falls back to its own defaults, where MD013
+      # and MD041 are both ON, so a wrong path must fail loudly (ENOENT) rather
+      # than lint quietly against the wrong rules.
+      #
+      # Each glob is quoted so it reaches the linter whole. The shell has no
+      # globstar here, so an unquoted `docs/**/*.md` would expand to
+      # `docs/*/*.md`, one directory deep, and the pages directly under
+      # `docs/` would never be linted. `docs/**/*.md` is in the list because
+      # the records, the design pages and the roadmap live under `docs/`.
+      - name: markdownlint
+        run: npx -y markdownlint-cli2 --config .github/markdownlint.json '*.md' 'docs/**/*.md' '.github/**/*.md'
+
+  closing-keywords:
+    name: closing keywords
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Guard fires and goes quiet
+        run: python scripts/test_check_closing_keywords.py
+
+      - name: Scan the pull request body
+        run: |
+          gh pr view "$PR" --json body -q .body > "$RUNNER_TEMP/pr-body.md"
+          python scripts/check_closing_keywords.py "$RUNNER_TEMP/pr-body.md"
+
+      # The title is the merge commit's message, and a title holds no
+      # `Autoclose:` trailer, so a closing verb before a number there is
+      # refused outright. The title goes to the script twice. The scan refuses
+      # a close the title does not acknowledge. A title that is itself a
+      # trailer line passes that scan by acknowledging its own close, so the
+      # second call reconciles it against an empty answer: any number a
+      # title's trailer names is then an overclaim. Exit 2 is the script
+      # failing to run, which the remedy printed below is not for.
+      - name: Scan the pull request title
+        run: |
+          gh pr view "$PR" --json title -q .title > "$RUNNER_TEMP/pr-title.txt"
+          status=0
+          python scripts/check_closing_keywords.py "$RUNNER_TEMP/pr-title.txt" || status=$?
+          if [ "$status" -eq 0 ]; then
+            python scripts/check_closing_keywords.py --github-closes '' \
+              "$RUNNER_TEMP/pr-title.txt" > "$RUNNER_TEMP/pr-title-trailer.txt" 2>&1 || status=$?
+            if [ "$status" -eq 0 ]; then
+              echo "OK - the title names no issue in an Autoclose trailer."
+              exit 0
+            fi
+            cat "$RUNNER_TEMP/pr-title-trailer.txt"
+          fi
+          if [ "$status" -eq 1 ]; then
+            echo "::error::The pull request title closes an issue or names one in a trailer, and a title cannot acknowledge a close."
+            echo "Retitle it without the closing verb before the number, and without"
+            echo "a trailer. A close you mean goes in the body, with its 'Autoclose:' trailer."
+          fi
+          exit "$status"
+
+      - name: Scan every commit message in the pull request
+        run: |
+          gh pr view "$PR" --json commits \
+            -q '.commits[].messageHeadline + "\n" + .commits[].messageBody' \
+            > "$RUNNER_TEMP/pr-commits.txt"
+          python scripts/check_closing_keywords.py "$RUNNER_TEMP/pr-commits.txt"
+
+      # Blind is not empty. A pull request is itself an issue in GitHub's
+      # model, so an issues listing that comes back empty during a pull-request
+      # run is a token that cannot see issues, and the reconcile below would
+      # read its empty answer as "closes nothing".
+      - name: The token can see issues at all
+        run: |
+          if ! seen="$(gh api "repos/$GITHUB_REPOSITORY/issues?state=all&per_page=1" --jq 'length' 2>"$RUNNER_TEMP/sight.err")"; then
+            echo "::error::This token cannot list issues, so it cannot see what merging will close."
+            cat "$RUNNER_TEMP/sight.err"
+            exit 1
+          fi
+          if [ "${seen:-0}" -lt 1 ]; then
+            echo "::error::The issues listing came back empty during a pull-request run: a token that cannot see issues."
+            exit 1
+          fi
+          echo "OK - the token can see issues (listing returned $seen)."
+
+      # The regex is a reimplementation; GitHub's own field is the authority.
+      # This step fetches and the script decides, so the rule has one reader.
+      # The field lags a body edit by tens of seconds and reads empty right
+      # after a pull request opens, so one disagreement is asked again.
+      - name: Ask GitHub what it will actually close
+        run: |
+          gh pr view "$PR" --json body -q .body > "$RUNNER_TEMP/pr-body-reconcile.md"
+          attempt() {
+            reported="$(
+              gh pr view "$PR" --json closingIssuesReferences \
+                -q '[.closingIssuesReferences[].number] | sort | join(",")'
+            )"
+            python scripts/check_closing_keywords.py \
+              --github-closes "$reported" \
+              "$RUNNER_TEMP/pr-body-reconcile.md" \
+              > "$RUNNER_TEMP/reconcile.txt" 2>&1
+          }
+          if attempt; then
+            cat "$RUNNER_TEMP/reconcile.txt"
+            exit 0
+          fi
+          echo "Disagreement on first read; the field lags an edit. Re-asking in 30s."
+          sleep 30
+          if attempt; then
+            cat "$RUNNER_TEMP/reconcile.txt"
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/reconcile.txt"
+          echo "::error::GitHub and the Autoclose trailer disagree about what merging this will close."
+          exit 1
+
+      # git on Linux and macOS skips a hook that is not executable, so a
+      # `.githooks/commit-msg` tracked as 100644 runs nothing there and fails
+      # nothing. Git for Windows ignores the bit, so a delete and re-add there
+      # would put 100644 back unseen. The check reads the mode from the index,
+      # after its own self-test shows it fire on a planted 100644 and go quiet
+      # on 100755. Last in the job, so a red mode never skips the
+      # closing-keyword verdict above. The cost runs the other way: a red step
+      # above skips these two, so that run says nothing about the mode. It is
+      # never a false green, because the job is red.
+      - name: Hook-mode check fires and goes quiet
+        run: python scripts/check_hook_mode.py --self-test
+
+      - name: Commit-msg hook is executable
+        run: python scripts/check_hook_mode.py .githooks/commit-msg
+
+  # The suite, on the floor of `requires-python`. This is the gating job, so
+  # the oldest interpreter the package claims is the one that can stop a
+  # merge; `tests (3.13)` below reports on the version above it.
+  #
+  # Not a matrix: a matrix renames this to `tests (3.12)` and the required
+  # check `tests` never reports. A second interpreter is a second job with its
+  # own name.
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      # The suite imports a public distribution, so this job holds no
+      # credential. `tests/test_serve.py` and `tests/test_produce.py` import
+      # `ration`, which `pyproject.toml`'s `service` extra pins as
+      # `catincloud-ration` at one exact version, and `uv` downloads it from
+      # PyPI over anonymous https. The lock carries the files' URLs and
+      # hashes; nothing here rewrites them.
+      #
+      # There is no skip. A suite that cannot import the codec the comparer
+      # runs has not exercised the comparer, and a green that ran fewer tests
+      # is the same quiet failure the last step refuses for an empty suite. A
+      # download that fails is red at `uv run`, with `uv`'s error.
+      #
+      # `--frozen` resolves from `uv.lock` and refuses to update it. Without
+      # it a drifted lockfile is silently repaired during CI, so the file
+      # stops meaning anything and the run stops being reproducible.
+      #
+      # `--python 3.12` is named rather than left to a default. Unnamed, the
+      # interpreter is whatever `uv` prefers among those that satisfy
+      # `requires-python`, chosen by nobody, and the two jobs can end up
+      # running the same one. Naming the version in both jobs is what makes
+      # each a claim about that version.
+      - name: Run the suite
+        run: uv run --frozen --python 3.12 --extra test --extra service pytest -q
+
+      # A suite that collects nothing passes, so the collected count is
+      # asserted rather than assumed.
+      - name: The suite is not empty
+        run: |
+          collected="$(uv run --frozen --python 3.12 --extra test --extra service pytest --collect-only -q \
+            | tail -1 | grep -oE '^[0-9]+' || echo 0)"
+          echo "Collected: ${collected} test(s)."
+          if [ "${collected}" -lt 1 ]; then
+            echo "::error::The suite collected nothing, so its pass means nothing."
+            exit 1
+          fi
+
+  # The version above the floor: 3.13.
+  # The floor itself is exercised by `tests`, the gating job.
+  #
+  # A second job rather than a matrix, for the reason `tests` gives. The name
+  # is written exactly as a matrix would have produced it, so converting to one
+  # later changes no name. The `uv` steps duplicate the job above deliberately:
+  # the two must be able to diverge if one interpreter ever needs different
+  # setup. The lock stays `--frozen`, so this run resolves the same pins as
+  # `tests` on a different Python.
+  #
+  # It reports and does not gate: `tests (3.13)` is not a required check.
+  tests-3-13:
+    name: tests (3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Run the suite above the floor
+        run: uv run --frozen --python 3.13 --extra test --extra service pytest -q
+
+      # Same assertion as `tests`, and the same reason: an interpreter the
+      # gating job does not run is exactly where a collection error would turn
+      # into a quiet green.
+      - name: The suite is not empty
+        run: |
+          collected="$(uv run --frozen --python 3.13 --extra test --extra service pytest --collect-only -q \
+            | tail -1 | grep -oE '^[0-9]+' || echo 0)"
+          echo "Collected: ${collected} test(s)."
+          if [ "${collected}" -lt 1 ]; then
+            echo "::error::The suite collected nothing, so its pass means nothing."
+            exit 1
+          fi
+
+  # The records under `docs/adr/` are held to what the tree says about them.
+  # `scripts/adr_preconditions.py` reads each numbered record there and every
+  # other tracked file in this checkout, and refuses three things: a record
+  # with no `## Do not implement until` section or an unknown `Status:`; a
+  # record `Accepted` with an unticked precondition and no `Implementable
+  # now:` line; and a record cited outside `docs/adr/` while it is `Proposed`
+  # or holds an unticked precondition. A citation is the record's number
+  # written in the usual form, or a path to its file. History files
+  # (`CHANGELOG.md`, `*.history.md`) are not read for citations: their entries
+  # quote what was once said and are not rewritten, so a red one could not be
+  # cleared.
+  #
+  # It reads this tree and nothing else: no token, no network, no other
+  # repository. A citation of one of these records from somewhere else is not
+  # seen, and the script says so on every verdict. Its self-test stages each
+  # refusal and each quiet case in throwaway repositories and runs first.
+  adr-preconditions:
+    name: adr preconditions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Gate fires and goes quiet
+        run: python3 scripts/adr_preconditions.py --self-test
+
+      - name: No record is cited while it is gated
+        run: python3 scripts/adr_preconditions.py docs/adr
+
+  # A pull-request title becomes the merge commit history cites, so it takes
+  # the conventional-commit form (`AGENTS.md`, Change workflow). Advisory.
+  #
+  # Each non-merge commit in the pull request is judged too, since a pull
+  # request here merges with a merge commit and every commit on its branch
+  # lands on `main` as written: its subject by the title's form rules,
+  # without the 100-character cap, and a body beyond its trailers.
+  pr-title:
+    name: pr title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Guard fires and goes quiet
+        run: python scripts/check_pr_title.py --self-test
+
+      # REST rather than `gh pr view --json commits`: the listing carries each
+      # commit's parents, which is how a merge commit is told apart and
+      # skipped, and the whole message. It lists at most 250 commits; the
+      # event's count and head are passed beside it, so a longer pull request,
+      # a listing that stopped early, or a branch that moved after the event is
+      # refused as unread rather than judged on what was seen.
+      #
+      # The listing is read once, with no retry. So a transient API error
+      # turns this advisory job red, and a re-run reads it again. It fails
+      # closed either way: an error exits non-zero, and a short read is
+      # refused.
+      - name: Read the pull request's commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100" \
+            --jq '.[] | {sha, parents: (.parents | length), message: .commit.message}' \
+            > "$RUNNER_TEMP/pr-title-commits.jsonl"
+
+      # The title reaches the script through the environment, never
+      # interpolated into shell: a title is attacker-adjacent text on a public
+      # repository.
+      - name: Judge the title and the commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python scripts/check_pr_title.py --title "$PR_TITLE" --author "$PR_AUTHOR" \
+            --commits "$RUNNER_TEMP/pr-title-commits.jsonl" \
+            --commits-expected "$PR_COMMITS" --head-sha "$PR_HEAD"
+
+  # Refuses the `pull_request_target` trigger in this repository's workflows,
+  # naming file and line: that trigger runs with the base repository's token
+  # and secrets and can be made to run a fork's code. A use is allowed only by
+  # `# allow pull_request_target: <reason>` on the trigger's own line, and
+  # each allowed use is printed. It reads the checked-out tree, so it runs on
+  # a push as well as on a pull request. Advisory.
+  #
+  # The checker parses YAML, so the first step installs the PyYAML that
+  # `scripts/pull_request_target_requirements.txt` pins, and Dependabot's
+  # `pip` entry for `/scripts` moves that pin.
+  pull-request-target:
+    name: pull request target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: PyYAML at the version the manifest pins
+        run: |
+          python3 -m pip install --requirement scripts/pull_request_target_requirements.txt
+          python3 -c 'import yaml; print(f"PyYAML {yaml.__version__} imported from {yaml.__file__}")'
+
+      - name: Guard fires and goes quiet
+        run: python3 scripts/check_pull_request_target.py --self-test
+
+      - name: No workflow triggers on pull_request_target unallowed
+        run: python3 scripts/check_pull_request_target.py --root .
+
+  # Every third-party action ref in this tree is a forty-character commit with
+  # its version as a trailing comment, from a publisher the checker enumerates.
+  # It scans every `.github/**/*.yml|yaml` the pull request proposes, never a
+  # named file, and refuses a tag, a bare hash or a stranger's publisher.
+  # Dependabot (`.github/dependabot.yml`) is the mover; this is what makes a
+  # hand edit at a tag visible. Advisory.
+  third-party-pins:
+    name: third-party pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Guard fires and goes quiet
+        run: python3 scripts/test_check_third_party_pins.py
+
+      - name: Every third-party ref in this tree is a commit with its version
+        env:
+          ORG: ${{ github.repository_owner }}
+        run: python3 scripts/check_third_party_pins.py --org "$ORG" --tree .
+
+  # The coding standard, the Power of 10, read per class against the tree the
+  # pull request proposes. `src` is class B, so it is read at cyclomatic
+  # ceiling 15 with the type checker's default: no recursion, no `while True`,
+  # no `global`, no blind `except`. `tests/` and `scripts/` are class C without
+  # being named. Nothing is installed for the type checker, so it reads the
+  # tree with imports unresolved. The interpreter is the floor of
+  # `requires-python`, so mypy types for what the package claims. The tool
+  # versions are written once, in `scripts/power_of_ten_requirements.txt`,
+  # which Dependabot's `pip` entry moves. A deviation is a `noqa` or
+  # `type: ignore[code]` naming the rule with its reason on the same line, and
+  # the check counts the adopted-code markers in each class and refuses a pull
+  # request that adds one. Advisory.
+  power-of-ten:
+    name: power of ten
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: The pinned tools
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet --requirement scripts/power_of_ten_requirements.txt
+          python -m ruff --version
+          python -m mypy --version
+
+      - name: Guard fires and goes quiet
+        run: python scripts/test_check_power_of_ten.py
+
+      # The base sha is the pull request's, or empty on a push: the checker
+      # reads the BASE's workflows to decide whether the ratchet runs, so
+      # nothing the head can set decides it.
+      - name: Every class reads clean at its ceiling, and the baseline did not grow
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/check_power_of_ten.py --tree . --class-b src --base-sha "$BASE_SHA"

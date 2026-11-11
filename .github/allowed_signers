@@ -1,0 +1,32 @@
+# Who may sign a release tag of this repository, in the format git's
+# gpg.ssh.allowedSignersFile reads (ssh-keygen(1), ALLOWED SIGNERS).
+#
+# .github/workflows/publish.yml has every pushed v* tag verified against this
+# file, by .github/workflows/release.yml through .github/release/verify-tag.sh,
+# and uploads nothing and creates no release for a tag that is not verified.
+# release.yml shows the verifier refusing a tag that is unsigned, lightweight,
+# signed by a key not named here, or carrying a signature made for another tag,
+# on every pull request and before every release.
+#
+# What this file cannot do: it travels in the same tree as the tag it vouches
+# for, so whoever can cut a v* tag can point one at a tree that trusts their own
+# key. A check against it shows that the key named here signed the tag, and
+# nothing about who holds that key.
+#
+# A line is a principal, the option namespaces="git", and the public half of a
+# key, in that order:
+#   <principal> namespaces="git" ssh-ed25519 <base64>
+# The principal is the address this repository's commits already carry as
+# author, so this file publishes nothing they did not.
+#
+# ROTATION, edited in the same change that starts using the new key:
+#   - RETIRED key: keep its line and add valid-before="YYYYMMDD" at least two
+#     days after the UTC date of the last tag it signed. git checks a key
+#     against the tag's own date, so the tags it signed keep verifying, and
+#     deleting the line un-verifies all of them. Two days, because a bare date
+#     is midnight at the start of that day in the verifier's time zone.
+#   - COMPROMISED key: delete its line. A tag's date is whatever its signer
+#     wrote, so valid-before cannot fence off a stolen key; the tags it signed
+#     stop verifying, which is the honest state for them.
+
+dave@catincloudlabs.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICtY4kaFc4hc7+2qY7QAH3lqkOYkIcBJo3nLvud7/Jua
