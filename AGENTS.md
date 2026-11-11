@@ -156,11 +156,9 @@ everywhere or nowhere. Nothing checks it.
   machine-local state cannot arrive by accident; it is not a place to put
   anything shared.
 - **The checks are two workflows, and each guard they run is a script in this
-  tree.** The release path is two more, in the next bullet, so
-  `.github/workflows/` holds four files.
-  The suite and the Markdown lint are the two that are not: `pytest` and
-  `markdownlint-cli2`, each named in the job that runs it.
-  `.github/workflows/checks.yml` (count its jobs with
+  tree.** The suite and the Markdown lint are the two that are not: `pytest`
+  and `markdownlint-cli2`, each named in the job that runs it. The two
+  workflows are `.github/workflows/checks.yml` (count its jobs with
   `sed -n '/^jobs:/,$p' .github/workflows/checks.yml | grep -c '^  [a-z0-9-]*:$'`
   or read the file, never a number written here; the class carries digits
   because `tests-3-13` has them, and a class without digits misses that job)
@@ -168,9 +166,10 @@ everywhere or nowhere. Nothing checks it.
   `.github/workflows/pr-hygiene.yml` (the verification-section gate and the
   deploy-label guard, which is why it listens for `labeled`; its
   rendered job name is the required-check context, so neither its job id may
-  change nor a `name:` be added - the file says why). None of the four
-  workflows calls an action from another repository of this organisation,
-  and none reads a secret but the run's own token.
+  change nor a `name:` be added - the file says why). The release path is
+  two more workflows, in the next bullet, so `.github/workflows/` holds four
+  files. None of the four calls an action from another repository of this
+  organisation, and none reads a secret but the run's own token.
 - **The release path is `.github/workflows/publish.yml`, and nothing uploads
   from a private repository.** That file's name and its upload jobs'
   environments, `pypi` and `testpypi`, are what the trusted publishers on PyPI
