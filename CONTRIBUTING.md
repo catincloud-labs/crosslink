@@ -81,7 +81,8 @@ That question is the point of the template; if the honest answer is
 "nothing", that is the most important line in the report. The first asks the
 same of a change before it is made: how we would know it worked.
 
-## What is deliberately not here yet
+## Releases
 
-A release. None has been cut: `git tag` prints nothing, and `README.md`,
-*Installing*, says what to do until one exists.
+A release is the owner's to cut, and no pull request cuts one. `README.md`,
+*Releases*, says what a release is and how to check one, and
+`git tag -l 'v*'` lists the tags that exist.

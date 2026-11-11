@@ -52,7 +52,13 @@ pip install catincloud-crosslink
 project, which installs a top-level `crosslink` package of its own, so the two
 cannot share an environment and the wrong one imports without complaint.
 
-No release has been uploaded yet. Until one is, install from a clone:
+`pip install catincloud-crosslink` installs the newest release that supports
+the Python it runs on; `requires-python` in `pyproject.toml` is the floor.
+The project's page on PyPI, <https://pypi.org/project/catincloud-crosslink/>,
+lists every release that has been uploaded.
+
+To install the tree at a commit no tag names, which is not a release even
+where it reports a release's version, install from a clone:
 
 ```bash
 git clone https://github.com/catincloud-labs/crosslink.git
@@ -137,8 +143,10 @@ see it.
 
 ## Releases
 
-No release has been cut: no `v*` tag exists, and nothing is on PyPI under
-this project's name. *Installing*, above, says what to do until one is.
+The first release was cut on 2026-11-11. `git tag -l 'v*'` in a clone lists
+the `v*` tags, the PyPI page *Installing* links lists the uploads, and
+`gh release list --repo catincloud-labs/crosslink` lists the GitHub
+releases. *Installing*, above, says how to install one.
 
 A release is a signed `v*` tag, the upload of that tagged tree to PyPI as
 `catincloud-crosslink`, and the GitHub release for the tag.

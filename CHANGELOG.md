@@ -1,13 +1,15 @@
 # Changelog
 
-**No release has been cut, so this is not yet a release log.** It is the
-history home of every living document here that has no `<name>.history.md`
-tracked beside it (`AGENTS.md`, *Living documents and records*). When
-a sentence in such a document is found dead, the change that finds it
-rewrites the sentence where it stood and moves the old text here, quoted,
-under a heading that names the document and the section it came from, with
-the date it was read and what it was read against. This lead is living; the
-entries below it are the record: read each as of when it was written.
+**This is not a release log.** A release's summary is on its GitHub
+release, which `gh release view <tag> --repo catincloud-labs/crosslink`
+prints. This file is the history home of every living document here that has
+no `<name>.history.md` tracked beside it (`AGENTS.md`, *Living documents and
+records*). When a sentence in such a document is found dead, the change that
+finds it rewrites the sentence where it stood and moves the old text here,
+quoted, under a heading that names the document and the section it came
+from, with the date it was read and what it was read against. This lead is
+living; the entries below it are the record: read each as of when it was
+written.
 
 ## `docs/design/write-path.md`, *What the oracle can say*
 
@@ -54,3 +56,41 @@ No claim in it was false of the tree. A sentence about the release path
 stood between the lead and *the two that are not*, which left that phrase
 pointing at the release workflows, and the sentence naming the two workflow
 files had no verb.
+
+## `README.md`, *Installing*
+
+Read 2026-11-11 against <https://pypi.org/pypi/catincloud-crosslink/json>,
+which answered 200 and listed one release, `0.1.0`, with a wheel and an
+sdist. The sentence between the warning against the bare name and the
+clone commands read:
+
+> No release has been uploaded yet. Until one is, install from a clone:
+
+## `README.md`, *Releases*
+
+Read 2026-11-11 against three things. `git ls-remote --tags` on this
+repository listed `refs/tags/v0.1.0`, peeling to `b9b7856`. The PyPI
+answer is the one quoted in the entry above. `gh release view v0.1.0`
+printed a release published that day. The section opened:
+
+> No release has been cut: no `v*` tag exists, and nothing is on PyPI under this project's name. *Installing*, above, says what to do until one is.
+
+## `CONTRIBUTING.md`, *What is deliberately not here yet*
+
+Read 2026-11-11 against `git tag -l 'v*'` in a clone fetched that day,
+which printed `v0.1.0`. The section, the file's last, read whole:
+
+> A release. None has been cut: `git tag` prints nothing, and `README.md`, *Installing*, says what to do until one exists.
+
+Its heading went with it: the section is now *Releases*.
+
+## `CHANGELOG.md`, the lead
+
+Read 2026-11-11 against the same tag and the same GitHub release. The lead
+opened with the line below, quoted as far as the text that was replaced; the
+sentence it breaks off in ran on unchanged:
+
+> **No release has been cut, so this is not yet a release log.** It is the
+
+The lead said the file was not yet a release log, and it is still not one:
+no entry here describes a release.
