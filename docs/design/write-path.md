@@ -7,10 +7,12 @@
   `src/crosslink/service.py`, `src/crosslink/serve.py`,
   `src/crosslink/produce.py`, and the seam they hang off,
   `src/crosslink/protocol.py`
-- **Reviewed:** 2026-11-10 - the passages that cited a decision recorded
-  outside this repository, or a commit, an issue or a pull request: in
-  the two *as a process* sections, the provenance line of each diagram,
-  and the closing paragraph. Nothing else re-read.
+- **Reviewed:** 2026-11-11 - the table in *What the oracle can say*, row by
+  row, against `verify()` in `src/crosslink/verify.py` and `generate()` in
+  `src/crosslink/generate.py`, and the tier table in *The seam the path
+  hangs off* with the sentence under it, against `src/crosslink/protocol.py`
+  and the two tests the section names, all at `e3255f0`. Nothing else
+  re-read.
 
 A design document, as `docs/design/README.md` defines one: it **describes
 and never decides**. Every
@@ -140,8 +142,8 @@ stated delta field by field, excluding the binding fields.
 | --- | --- | --- | --- |
 | accepted | `Verdict(closes=True, disagreements=())` | the observed delta *equals* the stated one | ends the search, accepted |
 | refused | `Verdict(closes=False, disagreements=(nouns...))` | the collections where observed and stated differ, named | records the attempt with its verdict; the next proposer sees the nouns |
-| wrong subject | `ValueError` before any patch runs | the stated delta is bound to another project than the tree reduces to | records the attempt with the error text; the search continues |
-| renamed subject | `ValueError` from `diff(before, after)`, after the patch ran in the sandbox and the copy was re-reduced | the patch renamed the project, so `diff` refuses to compare across projects and the harness does not catch what it cannot interpret | the same: the error text on the attempt; the search continues |
+| wrong subject | `ValueError` before any patch runs | the stated delta is bound to another project than the tree reduces to | never receives it from `verify`: `generate` makes the same check itself, before any proposal is requested, and raises `ValueError` to its caller; no attempt is recorded |
+| renamed subject | `ValueError` from `diff(before, after)`, after the patch ran in the sandbox and the copy was re-reduced | the patch renamed the project, so `diff` refuses to compare across projects and the harness does not catch what it cannot interpret | records the attempt with the error text and no verdict; the search continues |
 | the patch raises | propagates | a broken patch is not a refusal | (generate catches only `ValueError`; anything else propagates) |
 
 **Closes means equals.** A patch that did more than it claimed in declaration
@@ -181,7 +183,7 @@ tier_of(DbtProject(...))       # tests/test_dbt.py - the second format
 | 2 | `+ fingerprint()` - stable across calls, drift visible | yes | yes |
 | 3 | `+ propose_edits()` | no | no |
 
-Both cells in the last row are empty **by design** (ADR-0001's consequences):
+Both cells in the last row read `no` **by design** (ADR-0001's consequences):
 a Dagster reduction rightly declines edits because its truth is the code that
 builds the graph, and a dbt project is the natural first tier-3 candidate
 because its truth is files that can receive one - which is why the second
