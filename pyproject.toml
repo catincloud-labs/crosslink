@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 # installs a top-level `crosslink` package of its own, so the two cannot
 # share an environment (README, "Installing").
 name = "catincloud-crosslink"
-version = "0.1.0"
+version = "0.1.1"
 description = "A project format reduced from an orchestrated asset graph, and the write path back to it"
 readme = "README.md"
 license = "Apache-2.0"
@@ -113,7 +113,7 @@ service = ["catincloud-ration==0.2.1"]
 Homepage = "https://github.com/catincloud-labs/crosslink"
 Repository = "https://github.com/catincloud-labs/crosslink"
 Issues = "https://github.com/catincloud-labs/crosslink/issues"
-Changelog = "https://github.com/catincloud-labs/crosslink/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/catincloud-labs/crosslink/releases"
 
 # No requirement in this file is a direct reference, and nothing here lets
 # one in: hatchling refuses to build metadata that holds one unless
