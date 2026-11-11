@@ -143,7 +143,7 @@ stated delta field by field, excluding the binding fields.
 | accepted | `Verdict(closes=True, disagreements=())` | the observed delta *equals* the stated one | ends the search, accepted |
 | refused | `Verdict(closes=False, disagreements=(nouns...))` | the collections where observed and stated differ, named | records the attempt with its verdict; the next proposer sees the nouns |
 | wrong subject | `ValueError` before any patch runs | the stated delta is bound to another project than the tree reduces to | never receives it from `verify`: `generate` makes the same check itself, before any proposal is requested, and raises `ValueError` to its caller; no attempt is recorded |
-| renamed subject | `ValueError` from `diff(before, after)`, after the patch ran in the sandbox and the copy was re-reduced | the patch renamed the project, so `diff` refuses to compare across projects and the harness does not catch what it cannot interpret | records the attempt with the error text and no verdict; the search continues |
+| renamed subject | `ValueError` from `diff(before, after)`, after the patch ran in the sandbox and the copy was re-reduced | the patch renamed the project, so `diff` refuses to compare across projects and the harness does not catch what it cannot interpret | does not meet it: `TreeEdit.apply` carries the tree's name through, so no proposal it judges renames the project. A `ValueError` reaching it from `verify` is recorded as an attempt with the error text and no verdict, and the search continues |
 | the patch raises | propagates | a broken patch is not a refusal | (generate catches only `ValueError`; anything else propagates) |
 
 **Closes means equals.** A patch that did more than it claimed in declaration

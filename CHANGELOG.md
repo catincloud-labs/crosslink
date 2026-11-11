@@ -22,6 +22,16 @@ before its loop starts and raises `ValueError` to its caller, so no proposal
 is requested and no attempt is recorded. The page's own sequence diagram and
 its *`Delta` is bound to a project* bullet already said so.
 
+Read the same day against `TreeEdit.apply` in the same file at `e3255f0`.
+The last cell of the *renamed subject* row, directly below, read:
+
+> the same: the error text on the attempt; the search continues
+
+*The same* pointed at the cell quoted above. `generate()` does record a
+`ValueError` from `verify()` that way, but `TreeEdit.apply` builds its
+result with the tree's own name, so no edit `generate()` judges renames the
+project: the outcome is reached by a patch handed to `verify()` directly.
+
 ## `docs/design/write-path.md`, *The seam the path hangs off*
 
 Read 2026-11-11 against the table directly above the sentence, in the same
