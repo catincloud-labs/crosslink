@@ -219,6 +219,19 @@ everywhere or nowhere. Nothing checks it.
   an H1 - the PR or issue title is the heading - and that is the shape GitHub
   expects, not a defect to fix. A `.markdownlint.json` at the root would not
   be read: the config is named on the command line.
+- **A false comment in a code or configuration file is rewritten, and its
+  old text is cut.** This covers a comment or a docstring in any file that is
+  not Markdown: `.py`, `.toml`, `.yml`, `.sh`, `.json` and the like. When one
+  is found false, the change that finds it rewrites it to what is true at
+  `main` and deletes the old text. The old text is not kept beside the new
+  under a marker, and it is not moved to `CHANGELOG.md` or any other history
+  home: it stays in git history, and the pull request that cuts it quotes it
+  in its body. A `.md` file is a document, and a false sentence in one follows
+  *Living documents and records* below instead. A `**DEAD YYYY-MM-DD.**`
+  marker in a file that is not Markdown is removed by the next change that
+  touches that file, by the same rule. This lists any, and prints nothing when
+  there are none:
+  `git grep -n -E 'DEAD [0-9]{4}-[0-9]{2}-[0-9]{2}' -- . ':(exclude)*.md'`.
 - **This repository's records,** for *Living documents and records* below,
   are the accepted ADRs in `docs/adr/` (not `0000-template.md`) and the
   entries of its history homes: `CHANGELOG.md`, and any `*.history.md` that
@@ -255,7 +268,9 @@ docstring gives the command that shows it. It skips nothing by file type.
   ADR, an entry in a history home, a dated snapshot, or a document whose own
   `Status:` says frozen. A history home's lead, which says what the file
   holds, is living; its entries are the record. Every other tracked document
-  is living.
+  is living. A document here is a `.md` file; a comment or docstring in any
+  other file is code, and a false one follows the rule in *Repo conventions*
+  above: rewritten, its old text cut, nothing moved to a history home.
 - **A living document states the present.** When a sentence in one is found
   dead, the change that finds it rewrites the sentence to what is true at
   `main`. In the same commit, the dead text moves to the document's history
