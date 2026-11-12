@@ -231,8 +231,8 @@ everywhere or nowhere. Nothing checks it.
   *Living documents and records* below instead. A vendored `check_*.py` under
   `scripts/` is not edited here, so a false comment in one is cut at its
   source and vendored again. A marker or an in-place correction in any other
-  file that is not Markdown is removed by the next change that touches that
-  file, by the same rule. This lists the markers written with the word
+  file that is not Markdown is rewritten by the next change that touches its
+  sentence, by the same rule. This lists the markers written with the word
   `DEAD`, from anywhere in the checkout, and prints nothing when there are
   none: `git grep -n -w DEAD -- ':/' ':(top,exclude)*.md'`. A correction
   written in prose has no fixed form, and no command lists it.
