@@ -223,15 +223,19 @@ everywhere or nowhere. Nothing checks it.
   old text is cut.** This covers a comment or a docstring in any file that is
   not Markdown: `.py`, `.toml`, `.yml`, `.sh`, `.json` and the like. When one
   is found false, the change that finds it rewrites it to what is true at
-  `main` and deletes the old text. The old text is not kept beside the new
-  under a marker, and it is not moved to `CHANGELOG.md` or any other history
-  home: it stays in git history, and the pull request that cuts it quotes it
-  in its body. A `.md` file is a document, and a false sentence in one follows
-  *Living documents and records* below instead. A `**DEAD YYYY-MM-DD.**`
-  marker in a file that is not Markdown is removed by the next change that
-  touches that file, by the same rule. This lists any, and prints nothing when
-  there are none:
-  `git grep -n -E 'DEAD [0-9]{4}-[0-9]{2}-[0-9]{2}' -- . ':(exclude)*.md'`.
+  `main` and deletes the old text. The old text is not kept beside the new,
+  under a marker or as a correction in place (*this used to say*), and it is
+  not moved to `CHANGELOG.md` or any other history home: it stays in git
+  history, and the pull request that rewrites it says in its body what was
+  cut. A `.md` file is a document, and a false sentence in one follows
+  *Living documents and records* below instead. A vendored `check_*.py` under
+  `scripts/` is not edited here, so a false comment in one is cut at its
+  source and vendored again. A marker or an in-place correction in any other
+  file that is not Markdown is removed by the next change that touches that
+  file, by the same rule. This lists the markers written with the word
+  `DEAD`, from anywhere in the checkout, and prints nothing when there are
+  none: `git grep -n -w DEAD -- ':/' ':(top,exclude)*.md'`. A correction
+  written in prose has no fixed form, and no command lists it.
 - **This repository's records,** for *Living documents and records* below,
   are the accepted ADRs in `docs/adr/` (not `0000-template.md`) and the
   entries of its history homes: `CHANGELOG.md`, and any `*.history.md` that
