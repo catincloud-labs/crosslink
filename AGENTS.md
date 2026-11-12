@@ -219,6 +219,23 @@ everywhere or nowhere. Nothing checks it.
   an H1 - the PR or issue title is the heading - and that is the shape GitHub
   expects, not a defect to fix. A `.markdownlint.json` at the root would not
   be read: the config is named on the command line.
+- **A false comment in a code or configuration file is rewritten, and its
+  old text is cut.** This covers a comment or a docstring in any file that is
+  not Markdown: `.py`, `.toml`, `.yml`, `.sh`, `.json` and the like. When one
+  is found false, the change that finds it rewrites it to what is true at
+  `main` and deletes the old text. The old text is not kept beside the new,
+  under a marker or as a correction in place (*this used to say*), and it is
+  not moved to `CHANGELOG.md` or any other history home: it stays in git
+  history, and the pull request that rewrites it says in its body what was
+  cut. A `.md` file is a document, and a false sentence in one follows
+  *Living documents and records* below instead. A vendored `check_*.py` under
+  `scripts/` is not edited here, so a false comment in one is cut at its
+  source and vendored again. A marker or an in-place correction in any other
+  file that is not Markdown is rewritten by the next change that touches its
+  sentence, by the same rule. This lists the markers written with the word
+  `DEAD`, from anywhere in the checkout, and prints nothing when there are
+  none: `git grep -n -w DEAD -- ':/' ':(top,exclude)*.md'`. A correction
+  written in prose has no fixed form, and no command lists it.
 - **This repository's records,** for *Living documents and records* below,
   are the accepted ADRs in `docs/adr/` (not `0000-template.md`) and the
   entries of its history homes: `CHANGELOG.md`, and any `*.history.md` that
@@ -255,7 +272,9 @@ docstring gives the command that shows it. It skips nothing by file type.
   ADR, an entry in a history home, a dated snapshot, or a document whose own
   `Status:` says frozen. A history home's lead, which says what the file
   holds, is living; its entries are the record. Every other tracked document
-  is living.
+  is living. A document here is a `.md` file; a comment or docstring in any
+  other file is code, and a false one follows the rule in *Repo conventions*
+  above: rewritten, its old text cut, nothing moved to a history home.
 - **A living document states the present.** When a sentence in one is found
   dead, the change that finds it rewrites the sentence to what is true at
   `main`. In the same commit, the dead text moves to the document's history
