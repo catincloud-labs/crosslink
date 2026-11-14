@@ -235,14 +235,25 @@ class DbtProject:
         Collects ``dbt_project.yml`` and every ``.sql``/``.yml``/``.yaml``
         under the project's model paths. Unreadable project files degrade the
         same way everything else does: the walk falls back to the default
-        model path and the reduction notes what it could not read.
+        model path and the reduction notes what it could not read. A file
+        whose resolved path lies outside ``root``, reached through a link in
+        the tree, is skipped with a note rather than read.
         """
 
         root = Path(root)
+        # A link inside the tree (a symlink, or a junction on Windows) can
+        # point anywhere, and rglob, is_file and read_text all follow it, so
+        # containment is judged on the resolved path of every file read.
+        inside = root.resolve()
         files: dict[str, str] = {}
         walk_notes: list[str] = []
 
         def read_into(relative: str, found: Path) -> None:
+            if not found.resolve().is_relative_to(inside):
+                walk_notes.append(
+                    f"file {relative!r} resolves outside the project root; skipped"
+                )
+                return
             try:
                 files[relative] = found.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:
@@ -440,8 +451,10 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
     (routing compares ``startswith(f"{base}/")``, which a trailing slash or
     dot-segment defeats). An entry that is not a plain relative path is
     dropped with a note: one that is absolute, and one with a ``..`` segment,
-    which would walk a directory outside the project root and read its files
-    into the reduction. A list that yields nothing usable falls back to
+    whether or not it climbs out of the root - one rule that needs no
+    resolution of the path, so memory and disk drop the same entries. A link
+    inside the tree is the disk walk's to contain (``from_directory``). A
+    list that yields nothing usable falls back to
     the default with a note: a typo'd header must not empty a populated
     project unexplained.
     """
@@ -475,7 +488,7 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
         path = path.rstrip("/")
         if ".." in path.split("/"):
             notes.append(
-                f"model-paths entry {entry!r} leaves the project root; dropped"
+                f"model-paths entry {entry!r} has a '..' segment; dropped"
             )
             continue
         if path:
