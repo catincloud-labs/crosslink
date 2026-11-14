@@ -486,7 +486,10 @@ class TestFromDirectory:
         junction and does not descend a directory symlink. So this reads
         what the walk lists, and holds the reader to it: nothing outside the
         root is ever read, a file the walk reached outside it is noted, and
-        a file the walk reached inside it is read."""
+        a file the walk reached inside it is read. Where the walk descends
+        neither link, the two comparisons hold with nothing behind them, and
+        this guards the walk while the file link's test, above, guards the
+        containment."""
 
         root, outside, kept = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
         directory_link(outside, root / "models" / "out_link")
@@ -496,6 +499,10 @@ class TestFromDirectory:
         names = {m.name for m in declarations.models}
         assert "fct_costs" in names
         assert "from_outside" not in names
+        # The two comparisons below pin the reader to this walk's descent. A
+        # reader that walks another way, and contains what it reaches, fails
+        # them too: read that failure as the walk having changed, not as a
+        # file read from outside the root, which the line above refuses.
         assert ("from_kept" in names) == ("from_kept.sql" in walked)
         noted = any("out_link" in note and "resolves outside the project root" in note
                     for note in declarations.notes)
@@ -529,7 +536,7 @@ def file_link(target, link) -> None:
     try:
         os.symlink(target, link)
     except OSError as exc:
-        pytest.skip(f"this platform refused a file symlink ({exc})")
+        pytest.skip(f"a file symlink was refused here ({exc.strerror})")
 
 
 def directory_link(target, link) -> None:
