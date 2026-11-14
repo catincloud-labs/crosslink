@@ -86,6 +86,9 @@ That question is the point of the template; if the honest answer is
 "nothing", that is the most important line in the report. The first asks the
 same of a change before it is made: how we would know it worked.
 
+A security problem is not filed as an issue: [`SECURITY.md`](SECURITY.md)
+says where to report it, privately.
+
 ## Releases
 
 A release is the owner's to cut, and no pull request cuts one. `README.md`,
