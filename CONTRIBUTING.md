@@ -68,6 +68,11 @@ Only adjacency fires. Write "part of #N" or "refs #N". When you do intend to
 close something, say so explicitly in the `Autoclose:` trailer of the PR body,
 so the effect is stated as data rather than inferred from prose.
 
+The `closing keywords` check also reads the pull request title, and refuses
+a closing verb before a number there even when the close is meant. The title
+becomes the merge commit's message and holds no trailer, so a close you mean
+goes in the PR body, with its `Autoclose:` trailer.
+
 ## Filing something
 
 Two issue templates exist:
