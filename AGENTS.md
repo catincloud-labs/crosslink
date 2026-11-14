@@ -70,10 +70,11 @@ moves stand behind that rule, each paid for in this organisation:
   a commit message or PR body unless you mean it - including in a sentence
   warning against doing it, and including inside backticks. Only *adjacency*
   fires, so "part of #N" and "refs #N" are safe. When you do mean it, add an
-  `Autoclose: #N` trailer enumerating exactly what closes. A pull request
-  title is refused even when the close is meant: the title becomes the merge
-  commit's message and holds no trailer, so a close you mean goes in the body,
-  with its `Autoclose:` trailer.
+  `Autoclose: #N` trailer enumerating exactly what closes. The
+  `closing keywords` job also reads the pull request title, and refuses a
+  closing verb before a number there even when the close is meant: the title
+  becomes the merge commit's message and holds no trailer, so a close you mean
+  goes in the body, with its `Autoclose:` trailer.
   - Guarded by `scripts/check_closing_keywords.py`, as a `commit-msg` hook
     and again in the `closing keywords` job. Check a draft before pushing:
     `python scripts/check_closing_keywords.py <file>`.
