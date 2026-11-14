@@ -12,6 +12,10 @@ project.
 
 from __future__ import annotations
 
+import os
+
+import pytest
+
 from crosslink import DbtProject, Freshness, ProjectModel
 from crosslink.conformance import (
     a_single_key_declaration,
@@ -276,6 +280,39 @@ class TestNothingRaises:
         assert declarations.models
         assert any("is absolute" in note for note in declarations.notes)
 
+    def test_a_model_paths_entry_with_a_dot_dot_segment_is_dropped_with_a_note(self):
+        for spelling in ("../shared", "models/../../shared", "..\\shared", "./../shared/"):
+            tree = an_analytics_tree()
+            tree["dbt_project.yml"] = (
+                f"name: analytics\nmodel-paths:\n  - '{spelling}'\n  - models\n"
+            )
+            tree["../shared/from_shared.sql"] = "select 1\n"
+            declarations = DbtProject(tree).declarations()
+            names = {m.name for m in declarations.models}
+            assert "fct_costs" in names, spelling
+            assert "from_shared" not in names, spelling
+            assert any("has a '..' segment" in note for note in declarations.notes), spelling
+
+    def test_a_dot_dot_segment_is_dropped_even_when_it_stays_inside_the_root(self):
+        """One rule, needing no resolution of the path: the entry is dropped
+        for its segment, not for where it would lead."""
+
+        tree = an_analytics_tree()
+        tree["dbt_project.yml"] = "name: analytics\nmodel-paths:\n  - models/staging/../marts\n"
+        declarations = DbtProject(tree).declarations()
+        assert any("has a '..' segment" in note for note in declarations.notes)
+        assert any("default model paths" in note for note in declarations.notes)
+
+    def test_a_dot_dot_inside_a_directory_name_is_not_a_segment(self):
+        tree = {
+            path.replace("models/", "models..v2/", 1): text
+            for path, text in an_analytics_tree().items()
+        }
+        tree["dbt_project.yml"] = "name: analytics\nmodel-paths:\n  - models..v2\n"
+        declarations = DbtProject(tree).declarations()
+        assert any(m.name == "fct_costs" for m in declarations.models)
+        assert not any("has a '..' segment" in note for note in declarations.notes)
+
     def test_a_duplicate_stem_losers_source_read_is_not_attributed(self):
         """The winner's SQL is what ships; a read stated only in the dropped
         file must not attribute to a model whose own SQL says no such
@@ -402,3 +439,119 @@ class TestFromDirectory:
         assert any("bad.sql" in note and "could not be read" in note
                    for note in declarations.notes)
         assert any(m.name == "fct_costs" for m in declarations.models)
+
+    def test_the_walk_reads_nothing_outside_the_project_root(self, tmp_path):
+        """A model-paths entry that climbs out of the root names a directory
+        the caller never passed; its files must not reach the reduction."""
+
+        root = tmp_path / "project"
+        tree = an_analytics_tree()
+        tree["dbt_project.yml"] = (
+            "name: analytics\nmodel-paths:\n  - ../outside\n  - models\n"
+        )
+        for path, text in tree.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "from_outside.sql").write_text("select 1\n", encoding="utf-8")
+        declarations = DbtProject.from_directory(root).declarations()
+        names = {m.name for m in declarations.models}
+        assert "fct_costs" in names
+        assert "from_outside" not in names
+        assert any("has a '..' segment" in note for note in declarations.notes)
+
+    def test_a_file_link_is_read_only_where_it_resolves_inside_the_root(self, tmp_path):
+        """A file link under the model path can point anywhere, and every
+        platform's walk lists it. The one that leads out of the root is
+        skipped with a note; the one that stays inside it is read, so the
+        containment is judged by where a file resolves, not by whether it was
+        reached through a link."""
+
+        root, outside, kept = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
+        file_link(outside / "from_outside.sql", root / "models" / "out_file_link.sql")
+        file_link(kept / "from_kept.sql", root / "models" / "in_file_link.sql")
+        declarations = DbtProject.from_directory(root).declarations()
+        names = {m.name for m in declarations.models}
+        assert "fct_costs" in names
+        assert "in_file_link" in names
+        assert "out_file_link" not in names
+        assert any("out_file_link" in note and "resolves outside the project root" in note
+                   for note in declarations.notes)
+
+    def test_a_directory_link_is_read_only_where_it_resolves_inside_the_root(self, tmp_path):
+        """A directory link under the model path can point anywhere, and
+        whether the walk descends it is the platform's: it descends a Windows
+        junction and does not descend a directory symlink. So this reads
+        what the walk lists, and holds the reader to it: nothing outside the
+        root is ever read, a file the walk reached outside it is noted, and
+        a file the walk reached inside it is read. Where the walk descends
+        neither link, the two comparisons hold with nothing behind them, and
+        this guards the walk while the file link's test, above, guards the
+        containment."""
+
+        root, outside, kept = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
+        directory_link(outside, root / "models" / "out_link")
+        directory_link(kept, root / "models" / "in_link")
+        walked = {path.name for path in (root / "models").rglob("*.sql")}
+        declarations = DbtProject.from_directory(root).declarations()
+        names = {m.name for m in declarations.models}
+        assert "fct_costs" in names
+        assert "from_outside" not in names
+        # The two comparisons below pin the reader to this walk's descent. A
+        # reader that walks another way, and contains what it reaches, fails
+        # them too: read that failure as the walk having changed, not as a
+        # file read from outside the root, which the line above refuses.
+        assert ("from_kept" in names) == ("from_kept.sql" in walked)
+        noted = any("out_link" in note and "resolves outside the project root" in note
+                    for note in declarations.notes)
+        assert noted == ("from_outside.sql" in walked)
+
+
+def a_tree_with_a_directory_either_side_of_the_root(tmp_path):
+    """The analytics tree under `project`, a directory `outside` beside it and
+    a directory `kept` inside it, each holding one model no model path names.
+    Returns the root and the two directories."""
+
+    root = tmp_path / "project"
+    for path, text in an_analytics_tree().items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "from_outside.sql").write_text("select 1\n", encoding="utf-8")
+    kept = root / "kept"
+    kept.mkdir()
+    (kept / "from_kept.sql").write_text("select 2\n", encoding="utf-8")
+    return root, outside, kept
+
+
+def file_link(target, link) -> None:
+    """A file symlink. Windows refuses one without the privilege, and has no
+    junction for a file, so there the test is skipped and the directory
+    link's test, which a junction serves, is the one that runs."""
+
+    try:
+        os.symlink(target, link)
+    except OSError as exc:
+        pytest.skip(f"a file symlink was refused here ({exc.strerror})")
+
+
+def directory_link(target, link) -> None:
+    """A directory symlink, or on Windows without the privilege a junction,
+    which needs none. A platform that allows neither skips the test."""
+
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return
+    except OSError:
+        if os.name != "nt":
+            pytest.skip("this platform refused a directory symlink")
+    try:
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    except (ImportError, OSError) as exc:
+        pytest.skip(f"neither a symlink nor a junction could be made here ({exc})")

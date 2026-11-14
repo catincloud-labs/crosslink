@@ -156,9 +156,10 @@ covers lives there, once.
 describes one implementation and the conformance suite discriminates
 between no two formats. It takes `{relative path: text}` (l.116-122, backslashes
 normalised to forward slashes so a tree built on Windows reads identically);
-`from_directory` (l.232-271) is the only thing that touches a disk, and an
-unreadable file becomes a walk note surfaced by `declarations()` rather than
-a raise (l.245-252). It stops at tier 2 for a different reason than the
+`from_directory` (l.232-282) is the only thing that touches a disk; an
+unreadable file, and a file that resolves outside the root through a link
+in the tree, each become a walk note surfaced by `declarations()` rather
+than a raise or a read (l.251-263). It stops at tier 2 for a different reason than the
 asset-graph format does: its class docstring (l.104-112) says the source of
 truth here is files that can genuinely receive an edit, which makes it the
 write path's first real target *later*, and `propose_edits` stays absent
@@ -171,8 +172,8 @@ Three decisions its docstring states rather than absorbs (l.19-42):
   regex over the SQL (`_REF_CALL` l.89-95, `_SOURCE_CALL` l.96-98), no Jinja
   engine, no dbt dependency. A call inside a SQL comment still renders and
   *is* a dependency, so it matches; a Jinja comment `{# ... #}` never renders,
-  so it is stripped first (`_JINJA_COMMENT`, l.88, applied at l.400 and
-  l.417). An expression the regex cannot read yields a missing edge, never a
+  so it is stripped first (`_JINJA_COMMENT`, l.88, applied at l.411 and
+  l.428). An expression the regex cannot read yields a missing edge, never a
   guessed one.
 - **Freshness is `NOT_APPLICABLE` about this reduction, not about dbt** -
   dbt compiles a manifest that could be fresh or stale, but this reduction
@@ -181,22 +182,23 @@ Three decisions its docstring states rather than absorbs (l.19-42):
 - **`read_by` is derived, never declared** - a model that reads a source
   says so in its own SQL, so attribution comes from `source()` extraction
   over the *kept* models' files only (l.145-159, `_readers_by_table`
-  l.412-420), and the "read by models that do not exist" note the Dagster
+  l.423-431), and the "read by models that do not exist" note the Dagster
   format needs has no dbt equivalent (l.36-42).
 
-The walk in pieces: `_project_header` (l.275-308) reads `dbt_project.yml`
+The walk in pieces: `_project_header` (l.286-319) reads `dbt_project.yml`
 and falls back to the name `"unnamed"` and `("models",)` with a note on every
 failure shape (missing, unreadable, not a mapping, no name);
-`_normalized_model_paths` (l.434-486) is the one reading of `model-paths`,
+`_normalized_model_paths` (l.445-506) is the one reading of `model-paths`,
 shared with the disk walk so the two cannot decide differently, normalising
-`./models` and `models/` and dropping absolute entries with a note; `_route`
-(l.310-365) sorts files under the model paths into the parsers' channels **by
+`./models` and `models/` and dropping, each with a note, an absolute entry
+and one with a `..` segment, whether or not it would leave the root; `_route`
+(l.321-376) sorts files under the model paths into the parsers' channels **by
 top-level key**, so one schema file carrying `models:` beside `sources:`
 feeds two parsers, and a file declaring none of the four vocabularies is
-noted; `_models_from_sql` (l.367-410) makes one model per SQL file - name
+noted; `_models_from_sql` (l.378-421) makes one model per SQL file - name
 from the stem, dependencies from `ref()`, layer from the first directory
-under the model path (`_layer_of`, l.423-431) - and on a **duplicate stem
-keeps the first in path order with a note** (l.394-399), the converge-and-
+under the model path (`_layer_of`, l.434-442) - and on a **duplicate stem
+keeps the first in path order with a note** (l.405-410), the converge-and-
 note posture rather than the Dagster format's refusal, because dbt itself
 refuses duplicates at compile time and a read path cannot.
 

@@ -11,6 +11,34 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `docs/design/reduction-side.md`, *The dbt format (`dbt.py`)*
+
+Read 2026-11-14 against `src/crosslink/dbt.py` at the change that made
+`_normalized_model_paths` drop a `model-paths` entry with a `..` segment
+and made `from_directory` skip a file that resolves outside the project
+root. That change added lines from `from_directory` on, so every line
+range after l.245 moved; it also added the link containment the first
+sentence did not state, and the `..` drop the walk sentence did not. Four
+sentences moved. The section's first paragraph ended:
+
+> It takes `{relative path: text}` (l.116-122, backslashes normalised to forward slashes so a tree built on Windows reads identically); `from_directory` (l.232-271) is the only thing that touches a disk, and an unreadable file becomes a walk note surfaced by `declarations()` rather than a raise (l.245-252).
+
+The *References are extracted* bullet ended:
+
+> A call inside a SQL comment still renders and *is* a dependency, so it matches; a Jinja comment `{# ... #}` never renders, so it is stripped first (`_JINJA_COMMENT`, l.88, applied at l.400 and l.417).
+
+The *`read_by`* bullet read:
+
+> **`read_by` is derived, never declared** - a model that reads a source says so in its own SQL, so attribution comes from `source()` extraction over the *kept* models' files only (l.145-159, `_readers_by_table` l.412-420), and the "read by models that do not exist" note the Dagster format needs has no dbt equivalent (l.36-42).
+
+The walk paragraph read:
+
+> The walk in pieces: `_project_header` (l.275-308) reads `dbt_project.yml` and falls back to the name `"unnamed"` and `("models",)` with a note on every failure shape (missing, unreadable, not a mapping, no name); `_normalized_model_paths` (l.434-486) is the one reading of `model-paths`, shared with the disk walk so the two cannot decide differently, normalising `./models` and `models/` and dropping absolute entries with a note; `_route` (l.310-365) sorts files under the model paths into the parsers' channels **by top-level key**, so one schema file carrying `models:` beside `sources:` feeds two parsers, and a file declaring none of the four vocabularies is noted; `_models_from_sql` (l.367-410) makes one model per SQL file - name from the stem, dependencies from `ref()`, layer from the first directory under the model path (`_layer_of`, l.423-431) - and on a **duplicate stem keeps the first in path order with a note** (l.394-399), the converge-and- note posture rather than the Dagster format's refusal, because dbt itself refuses duplicates at compile time and a read path cannot.
+
+An entry such as `../outside`, or a link in the tree pointing outside
+it, had made the disk walk read the files of a directory outside the
+project root.
+
 ## `docs/design/write-path.md`, *What the oracle can say*
 
 Read 2026-11-11 against `generate()` in `src/crosslink/generate.py` at
