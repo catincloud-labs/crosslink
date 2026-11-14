@@ -29,7 +29,8 @@ The most useful thing this file can do is tell you where to look rather than
 assert that it is safe.
 
 - **The library parses YAML you supply** (declaration, semantic and source
-  documents, and the files of a dbt project you point it at) with
+  documents, and for a dbt project the `.sql` and YAML files under each
+  directory its `dbt_project.yml` names in `model-paths`) with
   `yaml.safe_load`. The package root imports neither `crosslink.serve` nor
   `crosslink.produce`, nor the frame codec they use.
 - **`crosslink.serve` binds a socket and decodes bytes another node sent.**
@@ -47,10 +48,14 @@ assert that it is safe.
 - **`crosslink.produce` imports the modules you name** with `--load` and
   `--carve`, so whoever controls its command line controls an import. It
   reads the store's DSN from the `RATION_DSN` environment variable per run
-  and writes it nowhere, connects to that store, and sends one `POST` to the
-  address given as `--post`.
-- **`crosslink.deliver` runs `git` as a subprocess,** in an ephemeral clone,
-  under whatever identity the environment already carries. No parameter in
+  and writes it nowhere. Unless it is run with `--dry-run`, each run connects
+  to that store, publishes one pointer to it as the writer `--publisher`
+  names, and, unless that publication is superseded, sends one `POST` to the
+  address given as `--post`, which must be an http(s) URL.
+- **`crosslink.deliver` runs `git` as a subprocess,** under whatever identity
+  the environment already carries: it clones the repository you name into an
+  ephemeral directory, commits there, and pushes one new branch to it, refusing
+  a branch that already exists. No parameter in
   that module accepts a credential: the forge half of a pull request is a
   callable you supply. Its other mode writes files into a directory you name,
   and refuses one that is not empty.
