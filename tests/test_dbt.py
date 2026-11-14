@@ -462,32 +462,74 @@ class TestFromDirectory:
         assert "from_outside" not in names
         assert any("has a '..' segment" in note for note in declarations.notes)
 
-    def test_a_link_in_the_tree_is_read_only_where_it_resolves_inside_the_root(self, tmp_path):
-        """A directory link under the model path can point anywhere. The one
-        that leads out of the root is skipped with a note; the one that stays
-        inside it is read, so the containment is judged by where a file
-        resolves, not by whether it was reached through a link."""
+    def test_a_file_link_is_read_only_where_it_resolves_inside_the_root(self, tmp_path):
+        """A file link under the model path can point anywhere, and every
+        platform's walk lists it. The one that leads out of the root is
+        skipped with a note; the one that stays inside it is read, so the
+        containment is judged by where a file resolves, not by whether it was
+        reached through a link."""
 
-        root = tmp_path / "project"
-        for path, text in an_analytics_tree().items():
-            target = root / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (outside / "from_outside.sql").write_text("select 1\n", encoding="utf-8")
-        kept = root / "kept"
-        kept.mkdir()
-        (kept / "from_kept.sql").write_text("select 2\n", encoding="utf-8")
-        directory_link(outside, root / "models" / "out_link")
-        directory_link(kept, root / "models" / "in_link")
+        root, outside, kept = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
+        file_link(outside / "from_outside.sql", root / "models" / "out_file_link.sql")
+        file_link(kept / "from_kept.sql", root / "models" / "in_file_link.sql")
         declarations = DbtProject.from_directory(root).declarations()
         names = {m.name for m in declarations.models}
         assert "fct_costs" in names
-        assert "from_kept" in names
-        assert "from_outside" not in names
-        assert any("out_link" in note and "resolves outside the project root" in note
+        assert "in_file_link" in names
+        assert "out_file_link" not in names
+        assert any("out_file_link" in note and "resolves outside the project root" in note
                    for note in declarations.notes)
+
+    def test_a_directory_link_is_read_only_where_it_resolves_inside_the_root(self, tmp_path):
+        """A directory link under the model path can point anywhere, and
+        whether the walk descends it is the platform's: it descends a Windows
+        junction and does not descend a directory symlink. So this reads
+        what the walk lists, and holds the reader to it: nothing outside the
+        root is ever read, a file the walk reached outside it is noted, and
+        a file the walk reached inside it is read."""
+
+        root, outside, kept = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
+        directory_link(outside, root / "models" / "out_link")
+        directory_link(kept, root / "models" / "in_link")
+        walked = {path.name for path in (root / "models").rglob("*.sql")}
+        declarations = DbtProject.from_directory(root).declarations()
+        names = {m.name for m in declarations.models}
+        assert "fct_costs" in names
+        assert "from_outside" not in names
+        assert ("from_kept" in names) == ("from_kept.sql" in walked)
+        noted = any("out_link" in note and "resolves outside the project root" in note
+                    for note in declarations.notes)
+        assert noted == ("from_outside.sql" in walked)
+
+
+def a_tree_with_a_directory_either_side_of_the_root(tmp_path):
+    """The analytics tree under `project`, a directory `outside` beside it and
+    a directory `kept` inside it, each holding one model no model path names.
+    Returns the root and the two directories."""
+
+    root = tmp_path / "project"
+    for path, text in an_analytics_tree().items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "from_outside.sql").write_text("select 1\n", encoding="utf-8")
+    kept = root / "kept"
+    kept.mkdir()
+    (kept / "from_kept.sql").write_text("select 2\n", encoding="utf-8")
+    return root, outside, kept
+
+
+def file_link(target, link) -> None:
+    """A file symlink. Windows refuses one without the privilege, and has no
+    junction for a file, so there the test is skipped and the directory
+    link's test, which a junction serves, is the one that runs."""
+
+    try:
+        os.symlink(target, link)
+    except OSError as exc:
+        pytest.skip(f"this platform refused a file symlink ({exc})")
 
 
 def directory_link(target, link) -> None:
