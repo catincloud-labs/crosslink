@@ -439,7 +439,9 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
     ``./models`` - so they normalize rather than silently matching nothing
     (routing compares ``startswith(f"{base}/")``, which a trailing slash or
     dot-segment defeats). An entry that is not a plain relative path is
-    dropped with a note, and a list that yields nothing usable falls back to
+    dropped with a note: one that is absolute, and one with a ``..`` segment,
+    which would walk a directory outside the project root and read its files
+    into the reduction. A list that yields nothing usable falls back to
     the default with a note: a typo'd header must not empty a populated
     project unexplained.
     """
@@ -471,6 +473,11 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
         while path.startswith("./"):
             path = path[2:]
         path = path.rstrip("/")
+        if ".." in path.split("/"):
+            notes.append(
+                f"model-paths entry {entry!r} leaves the project root; dropped"
+            )
+            continue
         if path:
             normalized.append(path)
         else:

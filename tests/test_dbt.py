@@ -276,6 +276,26 @@ class TestNothingRaises:
         assert declarations.models
         assert any("is absolute" in note for note in declarations.notes)
 
+    def test_a_model_paths_entry_with_a_dot_dot_segment_is_dropped_with_a_note(self):
+        for spelling in ("../shared", "models/../../shared", "..\\shared", "./../shared/"):
+            tree = an_analytics_tree()
+            tree["dbt_project.yml"] = (
+                f"name: analytics\nmodel-paths:\n  - '{spelling}'\n  - models\n"
+            )
+            declarations = DbtProject(tree).declarations()
+            assert declarations.models, spelling
+            assert any("leaves the project root" in note for note in declarations.notes), spelling
+
+    def test_a_dot_dot_inside_a_directory_name_is_not_a_segment(self):
+        tree = {
+            path.replace("models/", "models..v2/", 1): text
+            for path, text in an_analytics_tree().items()
+        }
+        tree["dbt_project.yml"] = "name: analytics\nmodel-paths:\n  - models..v2\n"
+        declarations = DbtProject(tree).declarations()
+        assert any(m.name == "fct_costs" for m in declarations.models)
+        assert not any("leaves the project root" in note for note in declarations.notes)
+
     def test_a_duplicate_stem_losers_source_read_is_not_attributed(self):
         """The winner's SQL is what ships; a read stated only in the dropped
         file must not attribute to a model whose own SQL says no such
@@ -402,3 +422,25 @@ class TestFromDirectory:
         assert any("bad.sql" in note and "could not be read" in note
                    for note in declarations.notes)
         assert any(m.name == "fct_costs" for m in declarations.models)
+
+    def test_the_walk_reads_nothing_outside_the_project_root(self, tmp_path):
+        """A model-paths entry that climbs out of the root names a directory
+        the caller never passed; its files must not reach the reduction."""
+
+        root = tmp_path / "project"
+        tree = an_analytics_tree()
+        tree["dbt_project.yml"] = (
+            "name: analytics\nmodel-paths:\n  - ../outside\n  - models\n"
+        )
+        for path, text in tree.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "from_outside.sql").write_text("select 1\n", encoding="utf-8")
+        declarations = DbtProject.from_directory(root).declarations()
+        names = {m.name for m in declarations.models}
+        assert "fct_costs" in names
+        assert "from_outside" not in names
+        assert any("leaves the project root" in note for note in declarations.notes)

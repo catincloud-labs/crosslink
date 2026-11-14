@@ -11,6 +11,17 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `docs/design/reduction-side.md`, *The dbt format (`dbt.py`)*
+
+Read 2026-11-14 against `_normalized_model_paths` in `src/crosslink/dbt.py`
+at the change that made it refuse a `model-paths` entry with a `..` segment.
+The function then spanned l.434-493, and the clause describing it read:
+
+> `_normalized_model_paths` (l.434-486) is the one reading of `model-paths`, shared with the disk walk so the two cannot decide differently, normalising `./models` and `models/` and dropping absolute entries with a note;
+
+An entry such as `../outside` had passed the function unchanged, so the
+disk walk read the files of a directory outside the project root.
+
 ## `docs/design/write-path.md`, *What the oracle can say*
 
 Read 2026-11-11 against `generate()` in `src/crosslink/generate.py` at
