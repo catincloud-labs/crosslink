@@ -451,17 +451,20 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
     segment, and every empty segment but a leading one, is dropped rather
     than silently matching nothing (routing compares
     ``startswith(f"{base}/")``, which either kind of segment defeats). An
-    entry that collapses to nothing, such as ``.`` or ``./``, names no
-    directory and is dropped with a note. An entry that is not a plain
-    relative path is dropped with a note: one that is absolute, and one with
-    a ``..`` segment, whether or not it climbs out of the root - one rule
-    that needs no resolution of the path, so memory and disk drop the same
-    entries. A leading ``/`` is read on the entry as written, and a drive
-    once the ``.`` and empty segments go, so ``/x`` and ``./C:/x`` are
-    absolute and ``.//x`` is the relative ``x``. A link inside the tree is the disk walk's to contain
-    (``from_directory``). A list that yields nothing usable falls back to
-    the default with a note: a typo'd header must not empty a populated
-    project unexplained.
+    entry that collapses to nothing, such as ``.`` or ``./``, names the
+    project root to dbt, which reads ``model-paths`` relative to the
+    directory holding ``dbt_project.yml``; it is dropped with a note that
+    says so, because routing the root would make the disk walk read
+    ``dbt_project.yml`` itself, ``target/`` and ``dbt_packages/``. An entry
+    that is not a plain relative path is dropped with a note: one that is
+    absolute, and one with a ``..`` segment, whether or not it climbs out of
+    the root - one rule that needs no resolution of the path, so memory and
+    disk drop the same entries. A leading ``/`` is read on the entry as
+    written, and a drive once the ``.`` and empty segments go, so ``/x``
+    and ``./C:/x`` are absolute and ``.//x`` is the relative ``x``. A link
+    inside the tree is the disk walk's to contain (``from_directory``). A
+    list that yields nothing usable falls back to the default with a note:
+    a typo'd header must not empty a populated project unexplained.
     """
 
     notes: list[str] = []
@@ -501,7 +504,10 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
             normalized.append(path)
         else:
             notes.append(
-                f"model-paths entry {entry!r} names no directory; dropped"
+                f"model-paths entry {entry!r} names the project root, as dbt "
+                "reads model-paths relative to the directory holding "
+                "dbt_project.yml; this reader does not route the project "
+                "root, so the entry is dropped"
             )
     if not normalized:
         notes.append(

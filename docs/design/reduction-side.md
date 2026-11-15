@@ -188,7 +188,7 @@ Three decisions its docstring states rather than absorbs (l.19-42):
 The walk in pieces: `_project_header` (l.286-319) reads `dbt_project.yml`
 and falls back to the name `"unnamed"` and `("models",)` with a note on every
 failure shape (missing, unreadable, not a mapping, no name);
-`_normalized_model_paths` (l.445-512) is the one reading of `model-paths`,
+`_normalized_model_paths` (l.445-518) is the one reading of `model-paths`,
 shared with the disk walk so the two cannot decide differently, dropping
 every `.` segment and every empty segment but a leading one (which makes
 the entry absolute) so `./models`, `models/` and

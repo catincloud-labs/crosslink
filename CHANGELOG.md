@@ -11,6 +11,17 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `docs/design/reduction-side.md`, *The dbt format (`dbt.py`)*, the walk paragraph's line range
+
+Read 2026-11-15 against `src/crosslink/dbt.py` at the change that made
+`_normalized_model_paths` say, in its note for an entry that collapses to
+nothing, that dbt reads the entry as the project root and that this reader
+does not route it. That change lengthened the note and the docstring, so
+the function's line range moved from l.445-512 to l.445-518. One clause
+moved. The walk paragraph's second clause read:
+
+> `_normalized_model_paths` (l.445-512) is the one reading of `model-paths`, shared with the disk walk so the two cannot decide differently, dropping every `.` segment and every empty segment but a leading one (which makes the entry absolute) so `./models`, `models/` and `models/./staging` route as `models` and `models/staging` do, and dropping, each with a note, an absolute entry, one with a `..` segment, whether or not it would leave the root, and one that collapses to nothing;
+
 ## `docs/design/reduction-side.md`, *The dbt format (`dbt.py`)*, the walk paragraph
 
 Read 2026-11-14 against `src/crosslink/dbt.py` at the change that made
