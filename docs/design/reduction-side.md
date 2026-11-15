@@ -188,10 +188,12 @@ Three decisions its docstring states rather than absorbs (l.19-42):
 The walk in pieces: `_project_header` (l.286-319) reads `dbt_project.yml`
 and falls back to the name `"unnamed"` and `("models",)` with a note on every
 failure shape (missing, unreadable, not a mapping, no name);
-`_normalized_model_paths` (l.445-506) is the one reading of `model-paths`,
-shared with the disk walk so the two cannot decide differently, normalising
-`./models` and `models/` and dropping, each with a note, an absolute entry
-and one with a `..` segment, whether or not it would leave the root; `_route`
+`_normalized_model_paths` (l.445-512) is the one reading of `model-paths`,
+shared with the disk walk so the two cannot decide differently, dropping
+every `.` segment and empty segment so `./models`, `models/` and
+`models/./staging` route as `models` and `models/staging` do, and dropping,
+each with a note, an absolute entry, one with a `..` segment, whether or not
+it would leave the root, and one that collapses to nothing; `_route`
 (l.321-376) sorts files under the model paths into the parsers' channels **by
 top-level key**, so one schema file carrying `models:` beside `sources:`
 feeds two parsers, and a file declaring none of the four vocabularies is

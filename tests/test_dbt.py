@@ -47,6 +47,27 @@ def an_analytics_tree() -> dict[str, str]:
     }
 
 
+MODEL_PATH_SPELLINGS = (
+    "models/staging",
+    "./models/staging",
+    "models/staging/",
+    "models/./staging",
+    "models//staging",
+    "models/staging/.",
+    "./models/./staging/./",
+    "models\\.\\staging",
+)
+
+
+def a_tree_with_model_path(entry: str) -> dict[str, str]:
+    """The analytics tree with one model-paths entry, quoted so YAML keeps
+    its backslashes and dots as written."""
+
+    tree = an_analytics_tree()
+    tree["dbt_project.yml"] = f"name: analytics\nmodel-paths:\n  - '{entry}'\n"
+    return tree
+
+
 class TestTheTreeWalk:
     def test_models_come_from_sql_files_with_layers_from_directories(self):
         declarations = DbtProject(an_analytics_tree()).declarations()
@@ -263,6 +284,40 @@ class TestNothingRaises:
             declarations = DbtProject(tree).declarations()
             assert declarations.models, spelling
 
+    @pytest.mark.parametrize("spelling", MODEL_PATH_SPELLINGS)
+    def test_a_dot_or_empty_segment_anywhere_routes_what_the_plain_spelling_routes(
+        self, spelling
+    ):
+        """``models/./staging`` and ``models//staging`` name the directory
+        ``models/staging`` names; routing compares by prefix, so the entry is
+        collapsed before it is compared, or it routes nothing and says
+        nothing. The first three spellings are the controls."""
+
+        plain = DbtProject(a_tree_with_model_path("models/staging")).declarations()
+        declarations = DbtProject(a_tree_with_model_path(spelling)).declarations()
+        assert [m.name for m in plain.models] == ["stg_events"]
+        assert declarations.models == plain.models, spelling
+        assert not any("model-paths" in note for note in declarations.notes), spelling
+
+    @pytest.mark.parametrize("spelling", (".", "./", "./.", ".//"))
+    def test_an_entry_that_collapses_to_nothing_names_no_directory(self, spelling):
+        declarations = DbtProject(a_tree_with_model_path(spelling)).declarations()
+        assert any("names no directory" in note for note in declarations.notes), spelling
+        assert any("default model paths" in note for note in declarations.notes), spelling
+
+    @pytest.mark.parametrize(
+        "spelling",
+        ("models/./../x", "models\\.\\..", "./..", "models//..//x", "models/.\\../x"),
+    )
+    def test_a_dot_dot_segment_mixed_with_dot_segments_is_still_dropped(self, spelling):
+        declarations = DbtProject(a_tree_with_model_path(spelling)).declarations()
+        assert any("has a '..' segment" in note for note in declarations.notes), spelling
+
+    @pytest.mark.parametrize("spelling", ("./C:/shared", ".\\C:\\shared", ".//C:/shared"))
+    def test_a_drive_behind_a_dot_segment_is_still_absolute(self, spelling):
+        declarations = DbtProject(a_tree_with_model_path(spelling)).declarations()
+        assert any("is absolute" in note for note in declarations.notes), spelling
+
     def test_an_unusable_model_paths_list_falls_back_with_a_note(self):
         tree = an_analytics_tree()
         tree["dbt_project.yml"] = "name: analytics\nmodel-paths:\n  - 123\n"
@@ -461,6 +516,33 @@ class TestFromDirectory:
         assert "fct_costs" in names
         assert "from_outside" not in names
         assert any("has a '..' segment" in note for note in declarations.notes)
+
+    @pytest.mark.parametrize("spelling", MODEL_PATH_SPELLINGS)
+    def test_a_dot_or_empty_segment_routes_on_disk_as_in_memory(self, tmp_path, spelling):
+        tree = a_tree_with_model_path(spelling)
+        for path, text in tree.items():
+            target = tmp_path / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        from_disk = DbtProject.from_directory(tmp_path).declarations()
+        assert [m.name for m in from_disk.models] == ["stg_events"], spelling
+        assert from_disk == DbtProject(tree).declarations(), spelling
+
+    def test_a_slash_behind_a_dot_segment_names_a_path_inside_the_root(self, tmp_path):
+        """``.//x`` is the relative ``x``, as a POSIX shell reads it, so an
+        absolute directory spelled behind ``./`` is looked for under the
+        root: nothing outside the root is read, and the walk does not raise."""
+
+        root, outside, _ = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
+        spelled = ".//" + outside.as_posix()[len(outside.drive):].lstrip("/")
+        (root / "dbt_project.yml").write_text(
+            f"name: analytics\nmodel-paths:\n  - '{spelled}'\n  - models\n",
+            encoding="utf-8",
+        )
+        declarations = DbtProject.from_directory(root).declarations()
+        names = {m.name for m in declarations.models}
+        assert "fct_costs" in names
+        assert "from_outside" not in names
 
     def test_a_file_link_is_read_only_where_it_resolves_inside_the_root(self, tmp_path):
         """A file link under the model path can point anywhere, and every

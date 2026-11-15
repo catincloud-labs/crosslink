@@ -447,14 +447,19 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
     disk walk so the two cannot decide differently.
 
     dbt tolerates the spellings authors actually write - ``models/``,
-    ``./models`` - so they normalize rather than silently matching nothing
-    (routing compares ``startswith(f"{base}/")``, which a trailing slash or
-    dot-segment defeats). An entry that is not a plain relative path is
-    dropped with a note: one that is absolute, and one with a ``..`` segment,
-    whether or not it climbs out of the root - one rule that needs no
-    resolution of the path, so memory and disk drop the same entries. A link
-    inside the tree is the disk walk's to contain (``from_directory``). A
-    list that yields nothing usable falls back to
+    ``./models``, ``models/./staging``, ``models//staging`` - so every ``.``
+    segment and every empty segment is dropped, wherever it stands, rather
+    than silently matching nothing (routing compares
+    ``startswith(f"{base}/")``, which either kind of segment defeats). An
+    entry that collapses to nothing, such as ``.`` or ``./``, names no
+    directory and is dropped with a note. An entry that is not a plain
+    relative path is dropped with a note: one that is absolute, and one with
+    a ``..`` segment, whether or not it climbs out of the root - one rule
+    that needs no resolution of the path, so memory and disk drop the same
+    entries. Absolute is read on what the entry names once its dot segments
+    go, so ``./C:/x`` is the drive path ``C:/x``, and ``.//x`` the relative
+    ``x``. A link inside the tree is the disk walk's to contain
+    (``from_directory``). A list that yields nothing usable falls back to
     the default with a note: a typo'd header must not empty a populated
     project unexplained.
     """
@@ -477,16 +482,17 @@ def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]
                 f"model-paths entry {entry!r} is not a path; dropped"
             )
             continue
-        path = entry.strip().replace("\\", "/")
-        if path.startswith("/") or re.match(r"^[A-Za-z]:", path):
+        raw = entry.strip().replace("\\", "/")
+        segments = [s for s in raw.split("/") if s not in ("", ".")]
+        path = "/".join(segments)
+        # A leading slash is read before the empty segments go; a drive is
+        # read after the dot segments go, so ./C:/x is the drive path it names.
+        if raw.startswith("/") or re.match(r"^[A-Za-z]:", path):
             notes.append(
                 f"model-paths entry {entry!r} is absolute; dropped"
             )
             continue
-        while path.startswith("./"):
-            path = path[2:]
-        path = path.rstrip("/")
-        if ".." in path.split("/"):
+        if ".." in segments:
             notes.append(
                 f"model-paths entry {entry!r} has a '..' segment; dropped"
             )
