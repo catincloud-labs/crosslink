@@ -534,15 +534,37 @@ class TestFromDirectory:
         root: nothing outside the root is read, and the walk does not raise."""
 
         root, outside, _ = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
-        spelled = ".//" + outside.as_posix()[len(outside.drive):].lstrip("/")
+        relative = outside.as_posix()[len(outside.drive):].lstrip("/")
+        (root / relative).mkdir(parents=True)
+        (root / relative / "from_under_root.sql").write_text("select 3\n", encoding="utf-8")
         (root / "dbt_project.yml").write_text(
-            f"name: analytics\nmodel-paths:\n  - '{spelled}'\n  - models\n",
+            f"name: analytics\nmodel-paths:\n  - './/{relative}'\n  - models\n",
+            encoding="utf-8",
+        )
+        declarations = DbtProject.from_directory(root).declarations()
+        names = {m.name for m in declarations.models}
+        assert "fct_costs" in names
+        assert "from_under_root" in names
+        assert "from_outside" not in names
+        assert not any("is absolute" in note for note in declarations.notes)
+
+    def test_an_absolute_directory_behind_a_dot_segment_is_not_walked(self, tmp_path):
+        """``./`` before an absolute path - a drive path on Windows, ``//``
+        and a path elsewhere - leaves it absolute or relative to the root,
+        never a directory outside it: nothing outside is read, and the walk
+        does not raise."""
+
+        root, outside, _ = a_tree_with_a_directory_either_side_of_the_root(tmp_path)
+        (root / "dbt_project.yml").write_text(
+            f"name: analytics\nmodel-paths:\n  - './{outside.as_posix()}'\n  - models\n",
             encoding="utf-8",
         )
         declarations = DbtProject.from_directory(root).declarations()
         names = {m.name for m in declarations.models}
         assert "fct_costs" in names
         assert "from_outside" not in names
+        if outside.drive:
+            assert any("is absolute" in note for note in declarations.notes)
 
     def test_a_file_link_is_read_only_where_it_resolves_inside_the_root(self, tmp_path):
         """A file link under the model path can point anywhere, and every

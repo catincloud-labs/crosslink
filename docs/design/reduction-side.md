@@ -190,7 +190,8 @@ and falls back to the name `"unnamed"` and `("models",)` with a note on every
 failure shape (missing, unreadable, not a mapping, no name);
 `_normalized_model_paths` (l.445-512) is the one reading of `model-paths`,
 shared with the disk walk so the two cannot decide differently, dropping
-every `.` segment and empty segment so `./models`, `models/` and
+every `.` segment and every empty segment but a leading one (which makes
+the entry absolute) so `./models`, `models/` and
 `models/./staging` route as `models` and `models/staging` do, and dropping,
 each with a note, an absolute entry, one with a `..` segment, whether or not
 it would leave the root, and one that collapses to nothing; `_route`
