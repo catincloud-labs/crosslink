@@ -300,9 +300,9 @@ class TestNothingRaises:
         assert not any("model-paths" in note for note in declarations.notes), spelling
 
     @pytest.mark.parametrize("spelling", (".", "./", "./.", ".//"))
-    def test_an_entry_that_collapses_to_nothing_names_no_directory(self, spelling):
+    def test_an_entry_that_collapses_to_nothing_names_the_project_root(self, spelling):
         declarations = DbtProject(a_tree_with_model_path(spelling)).declarations()
-        assert any("names no directory" in note for note in declarations.notes), spelling
+        assert any("names the project root" in note for note in declarations.notes), spelling
         assert any("default model paths" in note for note in declarations.notes), spelling
 
     @pytest.mark.parametrize(
@@ -659,3 +659,65 @@ def directory_link(target, link) -> None:
         _winapi.CreateJunction(str(target), str(link))
     except (ImportError, OSError) as exc:
         pytest.skip(f"neither a symlink nor a junction could be made here ({exc})")
+
+
+ROOT_NOTE = (
+    "model-paths entry {entry!r} names the project root, as dbt reads "
+    "model-paths relative to the directory holding dbt_project.yml; this "
+    "reader does not route the project root, so the entry is dropped"
+)
+DEFAULT_NOTE = (
+    "model-paths lists no usable entry; the default model paths "
+    "['models'] are used"
+)
+
+
+def a_tree_with_models_at_root_models_and_src(paths: str) -> dict[str, str]:
+    """One model at the project root, one under ``models/`` and one under
+    ``src/``, with ``model-paths`` set to the flow list ``paths``."""
+
+    return {
+        "dbt_project.yml": f"name: analytics\nmodel-paths: {paths}\n",
+        "stg_root.sql": "select 1 as id\n",
+        "models/stg_models.sql": "select 2 as id\n",
+        "src/stg_src.sql": "select 3 as id\n",
+    }
+
+
+class TestTheProjectRootEntry:
+    """``model-paths: ['.']`` names the project root to dbt. This reader
+    does not route the root, whose walk would read ``dbt_project.yml``,
+    ``target/`` and ``dbt_packages/``: it drops the entry with a note that
+    says so, and falls back to ``models`` when nothing else is left. The
+    ``['src']`` case is the control: a named directory routes its own model
+    and draws no ``model-paths`` note."""
+
+    CASES = (
+        ("['.']", ["stg_models"], [ROOT_NOTE.format(entry="."), DEFAULT_NOTE]),
+        ("['./']", ["stg_models"], [ROOT_NOTE.format(entry="./"), DEFAULT_NOTE]),
+        ("['.', 'models']", ["stg_models"], [ROOT_NOTE.format(entry=".")]),
+        ("['src']", ["stg_src"], []),
+    )
+
+    @staticmethod
+    def read(declarations) -> tuple[list[str], list[str]]:
+        return (
+            sorted(m.name for m in declarations.models),
+            [note for note in declarations.notes if "model-paths" in note],
+        )
+
+    @pytest.mark.parametrize(("paths", "models", "notes"), CASES)
+    def test_in_memory(self, paths, models, notes):
+        tree = a_tree_with_models_at_root_models_and_src(paths)
+        assert self.read(DbtProject(tree).declarations()) == (models, notes)
+
+    @pytest.mark.parametrize(("paths", "models", "notes"), CASES)
+    def test_on_disk(self, tmp_path, paths, models, notes):
+        tree = a_tree_with_models_at_root_models_and_src(paths)
+        for path, text in tree.items():
+            target = tmp_path / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        from_disk = DbtProject.from_directory(tmp_path).declarations()
+        assert self.read(from_disk) == (models, notes)
+        assert from_disk == DbtProject(tree).declarations()
