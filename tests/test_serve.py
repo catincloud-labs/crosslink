@@ -10,7 +10,10 @@ a corrupted frame answers `crc-mismatch` and a corrupted payload
 `digest-mismatch` as two different log fields; a replayed frame is refused
 before the envelope is looked at; the
 baseline is bytes on disk, and a comparer rebuilt from them answers
-`no-drift`, not `baseline`.
+`no-drift`, not `baseline`. The sequence ledgers are on disk beside it, so a
+replay against a restarted comparer is refused, a frame above the ledgered
+sequence is accepted, and removing the ledger file is what clears it - in
+process, and once more through a real restart of `python -m crosslink.serve`.
 
 Fixtures ride in from test_wire, test_delta and test_service. The frame codec
 is the real one, from the `[service]` extra -- a stand-in would prove the
@@ -23,6 +26,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import urllib.error
@@ -44,6 +48,7 @@ from crosslink.serve import (
     LENGTH_REQUIRED,
     UNKNOWN_SENDER,
     Comparer,
+    ledger_path,
     main,
     make_server,
 )
@@ -75,12 +80,28 @@ def with_wrong_digest(envelope_bytes: bytes) -> bytes:
 
 def a_comparer(tmp_path: Path, senders=(SENDER,)) -> tuple[Comparer, io.StringIO]:
     out = io.StringIO()
-    ledgers = {name: framing.SequenceLedger() for name in senders}
-    return Comparer(ledgers, tmp_path / "baseline.json", out), out
+    return Comparer(senders, tmp_path / "baseline.json", out), out
 
 
 def lines(out: io.StringIO) -> list[dict]:
     return [json.loads(line) for line in out.getvalue().splitlines()]
+
+
+def ledger_file(tmp_path: Path) -> Path:
+    return tmp_path / "baseline.json.ledger"
+
+
+def refusal(outcome) -> tuple:
+    return outcome.status, outcome.response["layer"], outcome.response["control"]
+
+
+def post(url: str, data: bytes) -> tuple[int, dict]:
+    request = urllib.request.Request(url, data=data, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read())
 
 
 class TestReceive:
@@ -118,7 +139,7 @@ class TestReceive:
 
     def test_a_sender_name_a_path_cannot_address_is_refused_at_construction(self, tmp_path):
         with pytest.raises(ValueError, match="not one a path can address"):
-            Comparer({"Not/A/Segment": framing.SequenceLedger()}, tmp_path / "b.json")
+            Comparer(["Not/A/Segment"], tmp_path / "b.json")
 
     def test_crc_and_digest_refusals_differ_in_layer_and_in_control(self, tmp_path):
         """The failure this guards against: a CRC failure and a digest
@@ -227,7 +248,7 @@ class TestReceive:
 
     def test_a_baseline_directory_that_does_not_exist_refuses_to_start(self, tmp_path):
         with pytest.raises(ValueError, match="does not exist"):
-            Comparer({SENDER: framing.SequenceLedger()}, tmp_path / "missing" / "b.json")
+            Comparer([SENDER], tmp_path / "missing" / "b.json")
 
     @pytest.mark.skipif(
         sys.platform == "win32" or os.geteuid() == 0,
@@ -246,7 +267,7 @@ class TestReceive:
         locked.chmod(0o500)
         try:
             with pytest.raises(ValueError, match=re.escape(f"{locked} cannot be written")):
-                Comparer({SENDER: framing.SequenceLedger()}, locked / "b.json")
+                Comparer([SENDER], locked / "b.json")
         finally:
             locked.chmod(0o700)
         assert list(locked.iterdir()) == []
@@ -269,6 +290,299 @@ class TestReceive:
         # A model name from the envelope is the body's content; it stays out.
         assert "fact_orders" not in raw
         assert "payload_digest" not in raw
+
+
+class TestTheLedgerOnDisk:
+    """The sequence ledgers beside the baseline: issue 21's three behaviours, and the file's care.
+
+    A restart is a comparer rebuilt from the same directory, as the baseline's
+    own restart case above builds it; `TestARealRestart` repeats the first
+    behaviour through the shipped entry point.
+    """
+
+    def test_the_ledger_is_written_beside_the_baseline_on_acceptance(self, tmp_path):
+        comparer, _ = a_comparer(tmp_path)
+        assert comparer.ledger_path == ledger_path(tmp_path / "baseline.json") == ledger_file(tmp_path)
+        assert not ledger_file(tmp_path).exists()
+
+        assert comparer.receive(SENDER, a_frame(epoch=1, count=0)).status == 200
+        assert ledger_file(tmp_path).read_bytes() == (
+            b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"count":0,"epoch":1}}}\n'
+        )
+        assert comparer.ledger == {SENDER: framing.Sequence(1, 0)}
+        assert not list(tmp_path.glob("*.tmp"))
+
+    def test_after_a_restart_a_frame_at_or_below_the_ledgered_sequence_is_refused(self, tmp_path):
+        """The replay a fresh ledger would have trusted. Below the ledgered
+        sequence, in its epoch or an earlier one, is `sequence-replayed`;
+        exactly at it is the codec's `sequence-duplicate`. Both are the frame
+        layer's, and neither moves the ledger."""
+
+        comparer, _ = a_comparer(tmp_path)
+        assert comparer.receive(SENDER, a_frame(epoch=3, count=0)).status == 200
+        assert comparer.receive(SENDER, a_frame(epoch=3, count=1)).status == 200
+
+        restarted, out = a_comparer(tmp_path)
+        assert restarted.ledger == {SENDER: framing.Sequence(3, 1)}
+        held = ledger_file(tmp_path).read_bytes()
+        for epoch, count in ((3, 0), (2, 0), (1, 7)):
+            below = restarted.receive(SENDER, a_frame(epoch=epoch, count=count))
+            assert refusal(below) == (400, LAYER_FRAME, framing.SEQUENCE_REPLAYED), (epoch, count)
+        at = restarted.receive(SENDER, a_frame(epoch=3, count=1))
+        assert refusal(at) == (400, LAYER_FRAME, framing.SEQUENCE_DUPLICATE)
+
+        assert restarted.ledger == {SENDER: framing.Sequence(3, 1)}
+        assert ledger_file(tmp_path).read_bytes() == held
+        assert [r["event"] for r in lines(out)] == ["refused"] * 4
+
+    def test_after_a_restart_a_frame_above_the_ledgered_sequence_is_accepted(self, tmp_path):
+        comparer, _ = a_comparer(tmp_path)
+        assert comparer.receive(SENDER, a_frame(epoch=3, count=0)).status == 200
+
+        restarted, _ = a_comparer(tmp_path)
+        following = restarted.receive(SENDER, a_frame(epoch=3, count=1))
+        assert (following.status, following.response["kind"]) == (200, NO_DRIFT)
+
+        again, _ = a_comparer(tmp_path)
+        assert again.ledger == {SENDER: framing.Sequence(3, 1)}
+        next_epoch = again.receive(SENDER, a_frame(epoch=4, count=0))
+        assert (next_epoch.status, next_epoch.response["kind"]) == (200, NO_DRIFT)
+        assert a_comparer(tmp_path)[0].ledger == {SENDER: framing.Sequence(4, 0)}
+
+    def test_with_the_ledger_file_removed_the_first_frame_is_accepted(self, tmp_path):
+        """The epoch hazard's remedy, both arms on one input: a store that
+        lost its data frames below the ledger and is refused, a restart alone
+        clears nothing, and the same frame after the file is removed is
+        accepted against the baseline that stood."""
+
+        comparer, _ = a_comparer(tmp_path)
+        assert comparer.receive(SENDER, a_frame(epoch=5, count=0)).status == 200
+        lost_store = a_frame(epoch=1, count=0)
+
+        restarted, _ = a_comparer(tmp_path)
+        assert refusal(restarted.receive(SENDER, lost_store)) == (400, LAYER_FRAME, framing.SEQUENCE_REPLAYED)
+        again, _ = a_comparer(tmp_path)
+        assert refusal(again.receive(SENDER, lost_store)) == (400, LAYER_FRAME, framing.SEQUENCE_REPLAYED)
+
+        ledger_file(tmp_path).unlink()
+        cleared, _ = a_comparer(tmp_path)
+        assert cleared.ledger == {}
+        assert cleared.previous == an_envelope()
+        accepted = cleared.receive(SENDER, lost_store)
+        assert (accepted.status, accepted.response["kind"]) == (200, NO_DRIFT)
+        assert a_comparer(tmp_path)[0].ledger == {SENDER: framing.Sequence(1, 0)}
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            pytest.param(b"\x00 not json", id="not-json"),
+            pytest.param(b"\xff\xfe{}", id="not-utf-8"),
+            pytest.param(b"[" * 100_000, id="nested-past-the-depth-limit"),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":'
+                + b"9" * 5000 + b',"count":0}}}',
+                id="number-past-the-digit-limit",
+            ),
+            pytest.param(b"[]", id="not-an-object"),
+            pytest.param(b'{"format":"crosslink-ledger/1"}', id="no-senders"),
+            pytest.param(b'{"format":"crosslink-ledger/1","senders":{},"extra":1}', id="extra-key"),
+            pytest.param(b'{"format":"crosslink-ledger/2","senders":{}}', id="other-format"),
+            pytest.param(b'{"format":"crosslink-ledger/1","senders":[]}', id="senders-not-an-object"),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"Not/A":{"epoch":1,"count":0}}}',
+                id="sender-name",
+            ),
+            pytest.param(b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":1}}}', id="no-count"),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":[1,0]}}', id="sequence-not-an-object"
+            ),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":true,"count":0}}}',
+                id="bool-epoch",
+            ),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":"1","count":0}}}',
+                id="string-epoch",
+            ),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":1.0,"count":0}}}',
+                id="float-epoch",
+            ),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":4294967296,"count":0}}}',
+                id="epoch-above-32-bits",
+            ),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":1,"count":-1}}}',
+                id="negative-count",
+            ),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":9,"count":0},'
+                b'"catalyst":{"epoch":1,"count":0}}}',
+                id="sender-twice",
+            ),
+        ],
+    )
+    def test_a_ledger_that_does_not_decode_refuses_to_start(self, tmp_path, data):
+        """A silent reset would trust a replay, so the comparer raises rather
+        than starts, and the file is left as it was for a person to read."""
+
+        ledger_file(tmp_path).write_bytes(data)
+        with pytest.raises(ValueError, match=re.escape(f"the ledger at {ledger_file(tmp_path)} does not decode")):
+            a_comparer(tmp_path)
+        assert ledger_file(tmp_path).read_bytes() == data
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"count":2,"epoch":1}}}\n',
+                id="as-written",
+            ),
+            pytest.param(
+                b'{\n  "senders": {"catalyst": {"epoch": 1, "count": 2}},\n  "format": "crosslink-ledger/1"\n}',
+                id="by-hand",
+            ),
+        ],
+    )
+    def test_a_ledger_that_decodes_starts_from_what_it_holds(self, tmp_path, data):
+        """The other arm of the refusal above, written by hand rather than by
+        the comparer, so the decoder is not only shown its own output."""
+
+        ledger_file(tmp_path).write_bytes(data)
+        comparer, _ = a_comparer(tmp_path)
+        assert comparer.ledger == {SENDER: framing.Sequence(1, 2)}
+        assert refusal(comparer.receive(SENDER, a_frame(epoch=1, count=2)))[2] == framing.SEQUENCE_DUPLICATE
+        assert comparer.receive(SENDER, a_frame(epoch=1, count=3)).status == 200
+
+    def test_a_ledger_write_that_fails_leaves_the_old_file_whole_and_nothing_moved(self, tmp_path, monkeypatch):
+        """The atomic write, and the order: the ledger's replace is made to
+        fail, so the old file stands whole, the baseline (written after it)
+        is not touched, and memory has not moved -- the sender's retry at the
+        same sequence is accepted once the disk takes writes again."""
+
+        comparer, out = a_comparer(tmp_path)
+        assert comparer.receive(SENDER, a_frame(epoch=1, count=0)).status == 200
+        ledger_before = ledger_file(tmp_path).read_bytes()
+        baseline_before = (tmp_path / "baseline.json").read_bytes()
+
+        real_replace = os.replace
+
+        def replace(src, dst):
+            if Path(dst) == ledger_file(tmp_path):
+                raise OSError(28, "No space left on device")
+            real_replace(src, dst)
+
+        monkeypatch.setattr(os, "replace", replace)
+        with pytest.raises(OSError, match="No space left"):
+            comparer.receive(SENDER, a_frame(a_drifted_snapshot(), epoch=1, count=1))
+        assert ledger_file(tmp_path).read_bytes() == ledger_before
+        assert (tmp_path / "baseline.json").read_bytes() == baseline_before
+        assert not list(tmp_path.glob("*.tmp"))
+        assert comparer.ledger == {SENDER: framing.Sequence(1, 0)}
+        assert comparer.previous == an_envelope()
+
+        monkeypatch.undo()
+        retried = comparer.receive(SENDER, a_frame(a_drifted_snapshot(), epoch=1, count=1))
+        assert (retried.status, retried.response["kind"]) == (200, DRIFT)
+        assert a_comparer(tmp_path)[0].ledger == {SENDER: framing.Sequence(1, 1)}
+        assert [r["event"] for r in lines(out)] == ["verdict", "verdict"]
+
+    def test_a_refusal_before_or_at_the_frame_layer_writes_no_ledger(self, tmp_path):
+        comparer, _ = a_comparer(tmp_path)
+        assert comparer.receive(SENDER, flipped_last_byte(a_frame())).status == 400
+        assert comparer.receive("stranger", a_frame()).status == 404
+        assert not ledger_file(tmp_path).exists()
+
+        assert comparer.receive(SENDER, a_frame(epoch=1, count=0)).status == 200
+        held = ledger_file(tmp_path).read_bytes()
+        assert refusal(comparer.receive(SENDER, a_frame(epoch=1, count=0)))[2] == framing.SEQUENCE_DUPLICATE
+        assert comparer.receive(SENDER, a_frame(epoch=1, count=5)).status == 400
+        assert ledger_file(tmp_path).read_bytes() == held
+
+    def test_a_sequence_consumed_past_the_frame_layer_stays_consumed_after_a_restart(self, tmp_path):
+        """The frame's rule, as the module docstring states it: once the
+        frame passed, an envelope refusal, an `identity-mismatch` and an
+        unserved kind each consume the sequence, and the file says so."""
+
+        comparer, _ = a_comparer(tmp_path)
+        tampered = framed(with_wrong_digest(encode_envelope(an_envelope())), 1, 0)
+        assert refusal(comparer.receive(SENDER, tampered)) == (422, LAYER_ENVELOPE, DIGEST_MISMATCH)
+        explore = framed(encode_envelope(an_envelope()), 1, 1, kind=framing.EXPLORE_QUERY)
+        assert refusal(comparer.receive(SENDER, explore))[:2] == (422, LAYER_COMPARER)
+        assert comparer.receive(SENDER, a_frame(epoch=1, count=2)).status == 200
+        other = a_frame(a_snapshot(name="elsewhere"), epoch=1, count=3)
+        assert refusal(comparer.receive(SENDER, other)) == (422, LAYER_COMPARER, IDENTITY_MISMATCH)
+
+        restarted, _ = a_comparer(tmp_path)
+        assert restarted.ledger == {SENDER: framing.Sequence(1, 3)}
+        assert refusal(restarted.receive(SENDER, a_frame(epoch=1, count=3)))[2] == framing.SEQUENCE_DUPLICATE
+        assert restarted.receive(SENDER, a_frame(epoch=1, count=4)).status == 200
+
+    def test_an_entry_for_a_sender_not_configured_is_carried_forward(self, tmp_path):
+        both, _ = a_comparer(tmp_path, senders=(SENDER, "other"))
+        assert both.receive("other", a_frame(epoch=9, count=0)).status == 200
+
+        one, _ = a_comparer(tmp_path)
+        assert one.ledger == {}
+        assert one.receive(SENDER, a_frame(epoch=1, count=0)).status == 200
+
+        again, _ = a_comparer(tmp_path, senders=(SENDER, "other"))
+        assert again.ledger == {SENDER: framing.Sequence(1, 0), "other": framing.Sequence(9, 0)}
+        assert refusal(again.receive("other", a_frame(epoch=9, count=0)))[2] == framing.SEQUENCE_DUPLICATE
+
+    @pytest.mark.parametrize("senders", ["catalyst", {SENDER: framing.SequenceLedger()}])
+    def test_senders_are_names_and_never_one_string_or_a_map_of_ledgers(self, tmp_path, senders):
+        with pytest.raises(TypeError, match="collection of names"):
+            Comparer(senders, tmp_path / "baseline.json")
+
+
+class TestARealRestart:
+    """The first behaviour again, through `python -m crosslink.serve` stopped and started.
+
+    The in-process cases rebuild a `Comparer`; this one proves that the
+    shipped entry point builds it from the same files, and that its first
+    line says what it held.
+    """
+
+    def _start(self, tmp_path: Path):
+        process = subprocess.Popen(
+            [sys.executable, "-m", "crosslink.serve", "--sender", SENDER,
+             "--baseline", str(tmp_path / "baseline.json"), "--bind", "127.0.0.1:0"],
+            stdout=subprocess.PIPE, text=True,
+        )
+        assert process.stdout is not None
+        listening = json.loads(process.stdout.readline())
+        assert listening["event"] == "listening"
+        port = listening["bind"].rpartition(":")[2]
+        return process, listening, f"http://127.0.0.1:{port}/{SENDER}"
+
+    def _stop(self, process) -> None:
+        process.terminate()
+        process.wait(timeout=30)
+        process.stdout.close()
+
+    def test_a_replay_across_a_restart_of_the_process_is_refused(self, tmp_path):
+        first, listening, url = self._start(tmp_path)
+        try:
+            assert (listening["objective"], listening["ledgered"]) == ("none", [])
+            assert listening["ledger"] == str(ledger_file(tmp_path))
+            status, body = post(url, a_frame(epoch=2, count=0))
+            assert (status, body["kind"]) == (200, BASELINE)
+        finally:
+            self._stop(first)
+
+        second, listening, url = self._start(tmp_path)
+        try:
+            assert (listening["objective"], listening["ledgered"]) == ("held", [SENDER])
+            status, body = post(url, a_frame(epoch=1, count=0))
+            assert (status, body["layer"], body["control"]) == (400, LAYER_FRAME, framing.SEQUENCE_REPLAYED)
+            status, body = post(url, a_frame(epoch=2, count=0))
+            assert (status, body["control"]) == (400, framing.SEQUENCE_DUPLICATE)
+            status, body = post(url, a_frame(epoch=3, count=0))
+            assert (status, body["kind"]) == (200, NO_DRIFT)
+        finally:
+            self._stop(second)
 
 
 class TestOverTheWire:

@@ -251,7 +251,9 @@ uv run --frozen --extra service python -m crosslink.serve \
 `--sender` names each producer the process keeps a sequence ledger for (the
 `POST` path is `/<sender>`); `--baseline` is where the accepted bytes are
 kept so that a restart does not re-baseline, and its directory has to exist
-and be writable or the process refuses to start; `--bind` defaults to
+and be writable or the process refuses to start. The sequence ledgers are
+kept beside it, at the same path with `.ledger` appended, so that a restart
+does not forget which sequences it has consumed; `--bind` defaults to
 loopback. Where it runs, and behind what, is its deployment's to decide: the
 module offers no TLS and no authentication, and its docstring says so.
 

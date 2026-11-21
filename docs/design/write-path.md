@@ -277,8 +277,10 @@ is the contract: the **frame** (`ration.frame`, decoded against the sender's
 `SequenceLedger` before anything reads the body; a refusal answers 400), the
 **envelope** (`decode_envelope` on the frame's body; 422), the **comparer**
 (`observe` against the standing objective; `identity-mismatch` answers 422,
-a verdict 200). Every request leaves exactly one JSON line on stdout, and
-the line carries `layer` as a field of its own beside `control` - so a
+a verdict 200). Every request the comparer answers leaves exactly one JSON
+line on stdout; a request whose ledger or baseline write fails raises
+instead, and leaves no line and no answer. The line carries `layer` as a
+field of its own beside `control` - so a
 `crc-mismatch` and a `digest-mismatch` differ in two fields and cannot land
 as one signal in the log, and `unknown-payload-kind`,
 the one control name all three layers use, is told apart by `layer` alone.
@@ -294,13 +296,18 @@ comparer that could not keep it refuses to start rather than failing at its
 first verdict: a baseline that does not decode, a baseline directory that does
 not exist, and one this process cannot write in, the last found by making the
 verdict's own first write and removing it.
-The ledgers are memory only - a restart forgets them, the cost
-`ration.frame`'s docstring states and `serve.py`'s own docstring prices - and
-that forgetting is also the by-hand clear for the epoch hazard: a store that
-loses its data restarts the producer's epoch below what the ledger accepted.
-One refusal moves state and is stated as such: a frame of a
-registered kind the comparer does not serve has passed every frame check, so
-its sequence is consumed.
+The ledgers are on disk beside the baseline, at its path with `.ledger`
+appended, so a restart remembers them and a replay against a restarted
+comparer is refused, where a fresh ledger would have trusted it - the cost
+`ration.frame`'s docstring leaves to its consumer. The file is written the
+way the baseline is, before the answer and before the baseline, and one that
+does not decode refuses to start. Its removal, while the process is stopped,
+is the by-hand clear for the epoch hazard: a store that loses its data
+restarts the producer's epoch below what the ledger accepted, and a restart
+alone no longer clears the refusal. A sequence is consumed once its frame
+passes the frame checks, so an envelope refusal, an `identity-mismatch` and a
+frame of a registered kind the comparer does not serve each move the ledger;
+a frame refusal does not.
 
 ## The producer as a process
 
@@ -342,7 +349,8 @@ the store's version is monotonic per key and never reused, so every run's
 epoch is above every earlier run's, the comparer's ledger accepts it at count
 zero, and a frame from any earlier run is `sequence-replayed`. That holds
 while the store keeps its data: a store that loses it is the epoch hazard
-named above, and its clear is the comparer's restart. Every run
+named above: its frames are refused until its generation passes the ledgered
+epoch, and its clear is removing the comparer's ledger file. Every run
 publishes, an unchanged graph included, so the topic's generation advancing
 with every run is a liveness signal. Nothing is retried: a refused publication is a
 second writer, a topology fact, and an undelivered frame is superseded by
