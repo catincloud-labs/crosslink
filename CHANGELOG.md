@@ -32,6 +32,16 @@ that passes the frame checks consumes its sequence whatever the envelope and
 the comparer then decide, so an envelope refusal and an `identity-mismatch`
 moved the ledger too.
 
+Read the same day against `Comparer.receive` in `src/crosslink/serve.py` at
+the same change. The section's second paragraph read, in its second
+sentence:
+
+> Every request leaves exactly one JSON line on stdout, and the line carries `layer` as a field of its own beside `control` - so a `crc-mismatch` and a `digest-mismatch` differ in two fields and cannot land as one signal in the log, and `unknown-payload-kind`, the one control name all three layers use, is told apart by `layer` alone.
+
+It was already false at `main` before that change: a baseline write that
+failed raised out of the request before its line was written. That change
+adds a ledger write that can fail the same way.
+
 ## `docs/design/write-path.md`, *The producer as a process*
 
 Read 2026-11-20 against `src/crosslink/serve.py` at the same change. The

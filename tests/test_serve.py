@@ -377,6 +377,12 @@ class TestTheLedgerOnDisk:
         [
             pytest.param(b"\x00 not json", id="not-json"),
             pytest.param(b"\xff\xfe{}", id="not-utf-8"),
+            pytest.param(b"[" * 100_000, id="nested-past-the-depth-limit"),
+            pytest.param(
+                b'{"format":"crosslink-ledger/1","senders":{"catalyst":{"epoch":'
+                + b"9" * 5000 + b',"count":0}}}',
+                id="number-past-the-digit-limit",
+            ),
             pytest.param(b"[]", id="not-an-object"),
             pytest.param(b'{"format":"crosslink-ledger/1"}', id="no-senders"),
             pytest.param(b'{"format":"crosslink-ledger/1","senders":{},"extra":1}', id="extra-key"),

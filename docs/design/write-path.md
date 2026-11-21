@@ -277,8 +277,10 @@ is the contract: the **frame** (`ration.frame`, decoded against the sender's
 `SequenceLedger` before anything reads the body; a refusal answers 400), the
 **envelope** (`decode_envelope` on the frame's body; 422), the **comparer**
 (`observe` against the standing objective; `identity-mismatch` answers 422,
-a verdict 200). Every request leaves exactly one JSON line on stdout, and
-the line carries `layer` as a field of its own beside `control` - so a
+a verdict 200). Every request the comparer answers leaves exactly one JSON
+line on stdout; a request whose ledger or baseline write fails raises
+instead, and leaves no line and no answer. The line carries `layer` as a
+field of its own beside `control` - so a
 `crc-mismatch` and a `digest-mismatch` differ in two fields and cannot land
 as one signal in the log, and `unknown-payload-kind`,
 the one control name all three layers use, is told apart by `layer` alone.
@@ -347,7 +349,8 @@ the store's version is monotonic per key and never reused, so every run's
 epoch is above every earlier run's, the comparer's ledger accepts it at count
 zero, and a frame from any earlier run is `sequence-replayed`. That holds
 while the store keeps its data: a store that loses it is the epoch hazard
-named above, and its clear is removing the comparer's ledger file. Every run
+named above: its frames are refused until its generation passes the ledgered
+epoch, and its clear is removing the comparer's ledger file. Every run
 publishes, an unchanged graph included, so the topic's generation advancing
 with every run is a liveness signal. Nothing is retried: a refused publication is a
 second writer, a topology fact, and an undelivered frame is superseded by

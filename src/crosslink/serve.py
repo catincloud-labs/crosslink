@@ -82,7 +82,10 @@ The file gets the baseline's care. It is written through a temp file beside
 it and ``os.replace``, before the answer, whenever a frame passes the frame
 checks. A request's frame is decoded against a copy of its sender's ledger,
 and the copy's move is kept in memory only once it is on disk, so a write
-that fails leaves memory and disk agreeing. It is written before the
+that fails leaves memory and disk agreeing. A write that fails, of either
+file, raises out of the request: no line is written and nothing is answered,
+and the stdlib server prints the traceback to stderr and drops the
+connection, so the sender sees no answer. It is written before the
 baseline, so an envelope in the baseline always has its sequence in the
 ledger: a crash between the two writes leaves a consumed sequence whose
 envelope was never kept, and the sender's next frame is accepted. A ledger
@@ -95,17 +98,19 @@ unchanged, so dropping a ``--sender`` for a while clears nothing.
 ## The epoch hazard, and what clears it
 
 The producer's epoch is a store generation, so a store that loses its data
-restarts the epoch below what this ledger accepted, and every frame is
+restarts the epoch below what this ledger accepted. Its frames are then
 refused ``sequence-replayed`` (``sequence-duplicate`` for the one frame whose
-generation lands exactly on the ledgered sequence). That standing refusal is
-the evidence that the store lost its data, and a restart does not clear it:
-a deploy tool that recreates this process has judged nothing, and the
-refusal stands. The remedy is removing the ledger file while the comparer is
-stopped, once the producer is known to be the live one; at the next start
-each sender's first frame is trusted for ordering again. The file is read at
-start only, and a running comparer writes back what it holds at its next
-accepted frame from any sender, so a removal under a running process clears
-nothing. Removing the file clears every sender's ledger.
+generation lands exactly on the ledgered sequence) until the rebuilt store's
+generation passes the ledgered epoch, which at one generation per run takes
+as many runs as the old store had made. That run of refusals is the evidence
+that the store lost its data, and a restart does not clear it: a deploy tool
+that recreates this process has judged nothing, and the refusals go on. The
+remedy is removing the ledger file while the comparer is stopped, once the
+producer is known to be the live one; at the next start each sender's first
+frame is trusted for ordering again. The file is read at start only, and a
+running comparer writes back what it holds at its next consumed frame from
+any sender, so a removal under a running process is undone by that frame.
+Removing the file clears every sender's ledger.
 
 ## Deliberately absent
 
@@ -289,7 +294,11 @@ def _sequence_from(name: str, value: object) -> framing.Sequence:
 def _decode_ledger(data: bytes) -> dict[str, framing.Sequence]:
     try:
         document = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_keys)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except _Undecodable:
+        raise
+    except (ValueError, RecursionError) as error:
+        # ValueError covers a bad encoding, bad JSON, and a number past the
+        # interpreter's digit limit; RecursionError a nesting past its depth.
         raise _Undecodable(f"not JSON: {error}") from error
     if not isinstance(document, dict) or set(document) != _LEDGER_KEYS:
         raise _Undecodable("not an object of exactly format and senders")
@@ -365,7 +374,9 @@ class Comparer:
     Separate from the HTTP shell so that the decision is testable without a
     socket and the shell holds nothing: :meth:`receive` is the whole of it,
     and :meth:`decline` is how the shell reports a request it refused before
-    reading a body, so that every request still leaves exactly one line.
+    reading a body, so that every request it answers leaves exactly one line.
+    A request whose ledger or baseline write fails raises out of
+    :meth:`receive` and leaves no line.
 
     One lock serialises requests. A ledger judges and then advances, and a
     baseline is read and then replaced; two requests from one sender
@@ -423,7 +434,7 @@ class Comparer:
 
     @property
     def ledger(self) -> dict[str, framing.Sequence]:
-        """The last sequence accepted from each configured sender that has one."""
+        """The last sequence consumed from each configured sender that has one."""
         with self._lock:
             return {name: self._held[name] for name in self._senders if name in self._held}
 
