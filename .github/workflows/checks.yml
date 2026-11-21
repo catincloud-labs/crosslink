@@ -400,17 +400,27 @@ jobs:
         run: python3 scripts/check_third_party_pins.py --org "$ORG" --tree .
 
   # The coding standard, the Power of 10, read per class against the tree the
-  # pull request proposes. `src` is class B, so it is read at cyclomatic
-  # ceiling 15 with the type checker's default: no recursion, no `while True`,
-  # no `global`, no blind `except`. `tests/` and `scripts/` are class C without
-  # being named. Nothing is installed for the type checker, so it reads the
+  # pull request proposes. `src` is class A - a stranger who installs the
+  # package runs it, its comparer and its conformance contract - so it is read
+  # at cyclomatic ceiling 10 and 40 statements a function with strict typing:
+  # no recursion, no `while True`, no `global` or `nonlocal`, no mutable
+  # default argument, no blind `except`, no `eval` or `exec`, and no call or
+  # load by a name computed at run time. The vendored copies under `scripts/`
+  # are class B, named one by one in `--class-b` below, because the rest of
+  # that directory is this repository's own code: ceiling 15, 60 statements,
+  # the type checker's default. A copy that misses a class B ceiling is fixed
+  # at its source, never here. Every other file is class C at ceiling 15
+  # without being named, a vendored self-test (`test_*.py`) among them.
+  # `power-of-ten.json` at the root names the suite checks that read rules 3
+  # and 5 for `src`, and the checker refuses the tree when a named check does
+  # not resolve. Nothing is installed for the type checker, so it reads the
   # tree with imports unresolved. The interpreter is the floor of
   # `requires-python`, so mypy types for what the package claims. The tool
   # versions are written once, in `scripts/power_of_ten_requirements.txt`,
   # which Dependabot's `pip` entry moves. A deviation is a `noqa` or
   # `type: ignore[code]` naming the rule with its reason on the same line, and
   # the check counts the adopted-code markers in each class and refuses a pull
-  # request that adds one. Advisory.
+  # request that adds one.
   power-of-ten:
     name: power of ten
     runs-on: ubuntu-latest
@@ -437,4 +447,10 @@ jobs:
       - name: Every class reads clean at its ceiling, and the baseline did not grow
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python scripts/check_power_of_ten.py --tree . --class-b src --base-sha "$BASE_SHA"
+        run: |
+          python scripts/check_power_of_ten.py --tree . --class-a src \
+          --class-b "scripts/check_closing_keywords.py scripts/check_deploy_label.py
+          scripts/check_hook_mode.py scripts/check_power_of_ten.py scripts/check_pr_title.py
+          scripts/check_pull_request_target.py scripts/check_third_party_pins.py
+          scripts/check_verification_section.py" \
+          --base-sha "$BASE_SHA"
