@@ -40,7 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from .delta import Changed, Delta, KeyedEdits, SetEdits
-from .model import ProjectDeclarations, absent_join_sides
+from .model import ExternalSource, ProjectDeclarations, absent_join_sides
 
 __all__ = [
     "DANGLING_DECLARED_JOIN",
@@ -55,6 +55,12 @@ UNDECLARED_LINEAGE_ROOT = "undeclared-lineage-root"
 DANGLING_DECLARED_KEY = "dangling-declared-key"
 DANGLING_DECLARED_JOIN = "dangling-declared-join"
 UNKNOWN_READER = "unknown-reader"
+
+# What the names above hold by construction, checked when the module loads.
+# An explicit `raise`, never `assert`, which `python -O` strips. Each check
+# has a planted wrong fact in `tests/test_load_time_checks.py`.
+if len({UNDECLARED_LINEAGE_ROOT, DANGLING_DECLARED_KEY, DANGLING_DECLARED_JOIN, UNKNOWN_READER}) != 4:
+    raise RuntimeError("findings: two finding kinds are one string, so a consumer keying by kind merges them")
 
 
 @dataclass(frozen=True)
@@ -206,58 +212,73 @@ def findings(declared: ProjectDeclarations) -> tuple[Finding, ...]:
             )
 
     for source in dict.fromkeys(declared.sources):
-        stale = tuple(reader for reader in source.read_by if reader not in known)
-        if stale:
-            surviving = tuple(r for r in source.read_by if r in known)
-            # The subject carries the schema when there is one: consumers key
-            # findings by (kind, subject), and `identifier` alone would
-            # collapse two real warehouse tables in different schemas - the
-            # exact collapse source_identity exists to prevent.
-            subject = (
-                f"{source.system}.{source.schema_name}.{source.table}"
-                if source.schema_name
-                else source.identifier
-            )
-            # Which minimal edit is proposed depends on whether any reader
-            # survives. When every reader is stale, a corrected attribution
-            # would be read_by=() - a state the declaring format cannot
-            # produce, because attribution is keyed by the declaring reader:
-            # removing the last declarer removes the source. Proposing it
-            # would hand the oracle a delta no tree patch can realize, so the
-            # all-stale case proposes the removal instead - the source line
-            # was the stale statement, and the table's reality in the
-            # warehouse is not this snapshot's to assert.
-            if surviving:
-                corrected = replace(source, read_by=surviving)
-                proposal = Delta(
-                    format=declared.format,
-                    name=declared.name,
-                    sources=KeyedEdits(
-                        changed=(Changed(source, corrected, ("read_by",)),)
-                    ),
-                )
-            else:
-                proposal = Delta(
-                    format=declared.format,
-                    name=declared.name,
-                    sources=KeyedEdits(removed=(source,)),
-                )
-            found.append(
-                Finding(
-                    kind=UNKNOWN_READER,
-                    subject=subject,
-                    claim=(
-                        f"source {source.identifier!r} is declared as read by "
-                        + ", ".join(repr(r) for r in stale)
-                        + ", which the project does not define"
-                    ),
-                    evidence=(
-                        f"sources holds {source!r}",
-                        "no model is named "
-                        + " or ".join(repr(r) for r in stale),
-                    ),
-                    proposal=proposal,
-                )
-            )
+        _unknown_reader(declared, source, known, found)
 
     return tuple(found)
+
+
+def _unknown_reader(
+    declared: ProjectDeclarations, source: ExternalSource, known: set[str], found: list[Finding]
+) -> None:
+    """The unknown-reader finding for ``source``, appended to ``found`` when it has one."""
+
+    stale = tuple(reader for reader in source.read_by if reader not in known)
+    if stale:
+        surviving = tuple(r for r in source.read_by if r in known)
+        # The subject carries the schema when there is one: consumers key
+        # findings by (kind, subject), and `identifier` alone would
+        # collapse two real warehouse tables in different schemas - the
+        # exact collapse source_identity exists to prevent.
+        subject = (
+            f"{source.system}.{source.schema_name}.{source.table}"
+            if source.schema_name
+            else source.identifier
+        )
+        # Which minimal edit is proposed depends on whether any reader
+        # survives. When every reader is stale, a corrected attribution
+        # would be read_by=() - a state the declaring format cannot
+        # produce, because attribution is keyed by the declaring reader:
+        # removing the last declarer removes the source. Proposing it
+        # would hand the oracle a delta no tree patch can realize, so the
+        # all-stale case proposes the removal instead - the source line
+        # was the stale statement, and the table's reality in the
+        # warehouse is not this snapshot's to assert.
+        if surviving:
+            corrected = replace(source, read_by=surviving)
+            proposal = Delta(
+                format=declared.format,
+                name=declared.name,
+                sources=KeyedEdits(
+                    changed=(Changed(source, corrected, ("read_by",)),)
+                ),
+            )
+        else:
+            proposal = Delta(
+                format=declared.format,
+                name=declared.name,
+                sources=KeyedEdits(removed=(source,)),
+            )
+        found.append(
+            Finding(
+                kind=UNKNOWN_READER,
+                subject=subject,
+                claim=(
+                    f"source {source.identifier!r} is declared as read by "
+                    + ", ".join(repr(r) for r in stale)
+                    + ", which the project does not define"
+                ),
+                evidence=(
+                    f"sources holds {source!r}",
+                    "no model is named "
+                    + " or ".join(repr(r) for r in stale),
+                ),
+                proposal=proposal,
+            )
+        )
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("findings: a name in __all__ is not defined in the module")

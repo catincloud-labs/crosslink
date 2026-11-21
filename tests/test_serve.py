@@ -26,11 +26,13 @@ import io
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
 import urllib.error
 import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -46,8 +48,10 @@ from crosslink.serve import (
     LAYER_ENVELOPE,
     LAYER_FRAME,
     LENGTH_REQUIRED,
+    MAX_BODY_BYTES,
     UNKNOWN_SENDER,
     Comparer,
+    _Handler,
     ledger_path,
     main,
     make_server,
@@ -674,6 +678,121 @@ class TestOverTheWire:
                 urllib.request.urlopen(request)
             assert caught.value.code == 411
             assert json.loads(caught.value.read())["control"] == LENGTH_REQUIRED
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+class ReadsBeforeBounding(_Handler):
+    """A receiver that breaks the rule the class below reads: it reads the body
+    its request declares, and only then hands the request to the comparer's
+    own bound. Its refusal comes, but only after it has waited for and
+    buffered a body past the maximum."""
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        super().do_POST()
+
+
+def serving_with(handler: type[_Handler], comparer: Comparer, max_body: int) -> ThreadingHTTPServer:
+    """A server for ``comparer`` as ``make_server`` builds one, with ``handler`` as its shell."""
+
+    class Handler(handler):
+        pass
+
+    Handler.comparer = comparer
+    Handler.max_body = max_body
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def answer_to_a_declared_length(server: ThreadingHTTPServer, length: int, timeout: float) -> tuple[int, dict]:
+    """Declare ``length`` body bytes, send none, and read what comes back within ``timeout``.
+
+    No body follows the headers, so a receiver that reads before it bounds
+    waits for bytes that never come, and this times out rather than answers.
+    """
+
+    host, port = server.server_address[0], server.server_address[1]
+    head = (
+        f"POST /{SENDER} HTTP/1.1\r\nHost: {host}\r\n"
+        f"Content-Length: {length}\r\nConnection: close\r\n\r\n"
+    ).encode("ascii")
+    with socket.create_connection((host, port), timeout=timeout) as connection:
+        connection.sendall(head)
+        received = b""
+        while chunk := connection.recv(65536):
+            received += chunk
+    status_line, _, rest = received.partition(b"\r\n")
+    return int(status_line.split()[1]), json.loads(rest.partition(b"\r\n\r\n")[2])
+
+
+class TestTheReceiveIsBounded:
+    """The comparer's receive states a maximum, ration's frame maximum, and
+    refuses past it before it reads a byte of the body.
+
+    This class is the coding standard's rule 3 reader for the comparer's
+    receive, declared in `power-of-ten.json`:
+
+    Measures: scripts/check_power_of_ten.py, rule 3
+
+    The violator is `ReadsBeforeBounding`: a receiver whose refusal is right
+    and comes too late, after the body. The reading below refuses it, so a
+    check that only looked for the 413 would not pass for this one.
+    """
+
+    def test_the_ceiling_is_one_whole_frame_at_the_frame_maximum(self, tmp_path):
+        assert MAX_BODY_BYTES == framing.HEADER_SIZE + framing.MAX_BODY_LENGTH
+        server = make_server(("127.0.0.1", 0), a_comparer(tmp_path)[0])
+        try:
+            assert server.RequestHandlerClass.max_body == MAX_BODY_BYTES
+        finally:
+            server.server_close()
+
+    def test_a_length_past_the_maximum_is_refused_with_no_body_read(self, tmp_path):
+        comparer, out = a_comparer(tmp_path)
+        server = serving_with(_Handler, comparer, MAX_BODY_BYTES)
+        try:
+            status, body = answer_to_a_declared_length(server, MAX_BODY_BYTES + 1, timeout=10)
+            assert (status, body["control"]) == (413, BODY_TOO_LARGE)
+            assert lines(out)[0]["size"] == MAX_BODY_BYTES + 1
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_a_receiver_that_reads_before_it_bounds_is_refused_by_this_reading(self, tmp_path):
+        comparer, _ = a_comparer(tmp_path)
+        server = serving_with(ReadsBeforeBounding, comparer, MAX_BODY_BYTES)
+        try:
+            with pytest.raises(TimeoutError):
+                answer_to_a_declared_length(server, MAX_BODY_BYTES + 1, timeout=2)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_a_frame_at_the_maximum_passes_the_ceiling_to_the_frame_and_envelope(self, tmp_path):
+        """The other arm: the largest frame a receiver must accept is not
+        refused by its length. Its body is no envelope, so the envelope layer
+        answers it, which is past both the ceiling and every frame check."""
+
+        comparer, _ = a_comparer(tmp_path)
+        server = make_server(("127.0.0.1", 0), comparer)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            frame = framed(bytes(framing.MAX_BODY_LENGTH))
+            assert len(frame) == MAX_BODY_BYTES
+            host, port = server.server_address[0], server.server_address[1]
+            request = urllib.request.Request(
+                f"http://{host}:{port}/{SENDER}", data=frame, method="POST"
+            )
+            with pytest.raises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(request, timeout=30)
+            body = json.loads(caught.value.read())
+            assert (caught.value.code, body["layer"], body["control"]) == (
+                422, LAYER_ENVELOPE, MALFORMED_ENVELOPE,
+            )
         finally:
             server.shutdown()
             server.server_close()

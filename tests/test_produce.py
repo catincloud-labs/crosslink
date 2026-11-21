@@ -44,8 +44,11 @@ from crosslink.produce import (
     EVENT_REDUCED,
     EVENT_SUPERSEDED,
     EVENT_UNREACHABLE,
+    MAX_ANSWER_BYTES,
     USER_AGENT,
+    _bounded_answer,
     main,
+    post,
     read_declarations,
     resolve,
 )
@@ -471,3 +474,130 @@ class TestTheCommandLine:
         with pytest.raises(SystemExit) as caught:
             main(argv, environ=DSN, open_store=pytest.fail)
         assert caught.value.code == 2
+
+
+class Supply:
+    """An answer of ``size`` bytes that counts how many of them were read."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+        self.handed = 0
+
+    def read(self, amt: int, /) -> bytes:
+        given = max(0, min(amt, self.size - self.handed))
+        self.handed += given
+        return b"x" * given
+
+
+def reads_the_whole_answer(status: int, answer) -> tuple[int, object] | str:
+    """A reader that breaks the rule the class below reads: it refuses an
+    answer past the maximum, but only after it has buffered all of it."""
+
+    raw = answer.read(1 << 40)
+    if len(raw) > MAX_ANSWER_BYTES:
+        return f"an answer with status {status} runs past the maximum"
+    return status, raw
+
+
+def refuses_unread_past_the_maximum(reader) -> None:
+    """``reader`` refuses an answer three maximums long, having read one byte past one."""
+
+    supply = Supply(3 * MAX_ANSWER_BYTES)
+    assert isinstance(reader(200, supply), str)
+    assert supply.handed <= MAX_ANSWER_BYTES + 1, f"read {supply.handed} bytes of the answer"
+
+
+def answering(status: int, body: bytes):
+    """A listener on a kernel-chosen port that answers every ``POST`` with ``status`` and ``body``."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except OSError:
+                # The producer closes once it has read one byte past its
+                # maximum, so the rest of a long answer may meet a closed socket.
+                pass
+
+        def log_message(self, fmt, *args) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+class TestTheAnswerIsBounded:
+    """The producer reads the comparer's answer against a stated maximum,
+    ``MAX_ANSWER_BYTES``, on a success and on a refusal alike, and refuses an
+    answer past it after reading one byte more.
+
+    This class is the coding standard's rule 3 reader for the producer's read
+    of the answer, declared in `power-of-ten.json`:
+
+    Measures: scripts/check_power_of_ten.py, rule 3
+
+    The violator is `reads_the_whole_answer`: a reader whose refusal is right
+    and comes too late, after the whole answer. The reading refuses it, so a
+    check that only looked for the refusal would not pass for this one.
+    """
+
+    def test_the_maximum_is_the_frame_maximum(self):
+        assert MAX_ANSWER_BYTES == framing.MAX_BODY_LENGTH
+
+    def test_the_read_refuses_with_one_byte_past_the_maximum_read(self):
+        refuses_unread_past_the_maximum(_bounded_answer)
+
+    def test_a_reader_that_buffers_the_whole_answer_is_refused_by_this_reading(self):
+        with pytest.raises(AssertionError, match="read 3145728 bytes"):
+            refuses_unread_past_the_maximum(reads_the_whole_answer)
+
+    def test_an_answer_at_the_maximum_is_read_whole(self):
+        supply = Supply(MAX_ANSWER_BYTES)
+        status, answer = _bounded_answer(200, supply)
+        assert (status, len(answer)) == (200, MAX_ANSWER_BYTES)
+
+    @pytest.mark.parametrize("status", [200, 413], ids=["a-success", "a-refusal"])
+    def test_an_answer_past_the_maximum_is_refused_on_either_branch(self, status):
+        """200 is read through the response, 413 through the `HTTPError`
+        urllib raises for it: the two reads `post` makes."""
+
+        server = answering(status, b"x" * (2 * MAX_ANSWER_BYTES))
+        try:
+            answer = post(f"http://127.0.0.1:{server.server_port}/{SENDER}", b"frame")
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert answer == (
+            f"an answer with status {status} runs past the maximum of "
+            f"{MAX_ANSWER_BYTES} bytes; refused, and the rest left unread"
+        )
+
+    @pytest.mark.parametrize("status", [200, 413], ids=["a-success", "a-refusal"])
+    def test_an_answer_at_the_maximum_is_an_answer_on_either_branch(self, status):
+        body = json.dumps("x" * (MAX_ANSWER_BYTES - 2)).encode()
+        assert len(body) == MAX_ANSWER_BYTES
+        server = answering(status, body)
+        try:
+            answer = post(f"http://127.0.0.1:{server.server_port}/{SENDER}", b"frame")
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert answer == (status, "x" * (MAX_ANSWER_BYTES - 2))
+
+    def test_a_run_whose_answer_is_past_the_maximum_ends_unreachable(self):
+        server = answering(200, b"x" * (2 * MAX_ANSWER_BYTES))
+        try:
+            code, line, _ = run(
+                argv_for(f"http://127.0.0.1:{server.server_port}/{SENDER}"), MemoryStore()
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert (code, line["event"]) == (1, EVENT_UNREACHABLE)
+        assert str(MAX_ANSWER_BYTES) in line["detail"]

@@ -68,7 +68,7 @@ test = [
 requires-dist = [
     { name = "anthropic", marker = "extra == 'generate'", specifier = ">=1.0" },
     { name = "catincloud-crosslink", extras = ["conformance"], marker = "extra == 'test'" },
-    { name = "catincloud-ration", marker = "extra == 'service'", specifier = "==0.2.1" },
+    { name = "catincloud-ration", marker = "extra == 'service'", specifier = "==0.3.0" },
     { name = "pytest", marker = "extra == 'conformance'", specifier = ">=8.4" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
@@ -76,11 +76,11 @@ provides-extras = ["conformance", "test", "generate", "service"]
 
 [[package]]
 name = "catincloud-ration"
-version = "0.2.1"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/64/fe/f73191cd78cd1b43bdad575304731ed74ec2dac107a9e1471bb29f437f3f/catincloud_ration-0.2.1.tar.gz", hash = "sha256:7dd9d14916427124b06f91f522bf3c7786d54b15418a38d7400bde3a74ac9280", size = 133695, upload-time = "2026-11-10T01:19:27.64Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/7a/10aca8d9b6da7dc425ec9ca4953ba885e8998f03281e6b80f26625301752/catincloud_ration-0.3.0.tar.gz", hash = "sha256:e9803eee3478ee5ed28a722bd74cf14fb7157c271195306e7bf6ab34ad909652", size = 142201, upload-time = "2026-11-21T19:12:28.131Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/0d/1f7c71bb065f8c251b15035c83b94ab2e978e9f73c048fd1a4508ee093a1/catincloud_ration-0.2.1-py3-none-any.whl", hash = "sha256:0d328d8c51e88c5ca63a684c888103aa8afdc85d609e97b27475ff52c3feaf59", size = 128657, upload-time = "2026-11-10T01:19:26.133Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/dc/c286f6f3a167487d834ae36aa4145014cfa8ba3b4ede8af7276ca1e584c9/catincloud_ration-0.3.0-py3-none-any.whl", hash = "sha256:0e59763c5188758b9859a2ac76679145cdf9fdd00a22f78c228907ce6eda0430", size = 133505, upload-time = "2026-11-21T19:12:26.92Z" },
 ]
 
 [[package]]

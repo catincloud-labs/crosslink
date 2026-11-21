@@ -64,7 +64,10 @@ writes exactly one JSON line on stdout, and exits with a status that says
 whether the comparer took the frame: ``reduced`` for
 ``--dry-run`` (exit 0); ``answered`` with the comparer's ``status`` and its
 ``answer`` (exit 0 only on 200 -- a ``drift`` verdict is the comparer's news,
-not a producer failure); ``superseded`` and ``unreachable`` (exit 1). The line
+not a producer failure); ``superseded`` and ``unreachable`` (exit 1). An
+answer longer than ``MAX_ANSWER_BYTES`` ends the run ``unreachable`` too, with
+a ``detail`` that names the maximum and the status: the comparer was reached,
+and what it sent is refused before the rest of it is read. The line
 carries counts, layer names and digests, never a model name: the comparer's
 lines keep the body out, and so do these. A reduction that raises -- an
 import that fails, two assets reducing to one name -- raises here too, as a
@@ -127,7 +130,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Protocol
 
 from ration import frame as framing
 from ration import publish
@@ -141,6 +144,7 @@ __all__ = [
     "EVENT_REDUCED",
     "EVENT_SUPERSEDED",
     "EVENT_UNREACHABLE",
+    "MAX_ANSWER_BYTES",
     "POST_TIMEOUT_SECONDS",
     "USER_AGENT",
     "main",
@@ -169,6 +173,23 @@ POST_TIMEOUT_SECONDS = 30.0
 # How much of a non-HTTP listener's first line an `unreachable` line carries.
 _DETAIL_LIMIT = 200
 
+# The most of the comparer's answer this process reads, on a success and on a
+# refusal alike: the answer comes from another owner of state, so it is read
+# against a stated maximum. The number is the frame's, `ration.frame`'s
+# `MAX_BODY_LENGTH`, the one maximum this package states for what another
+# process sends it. An answer reports on one frame, far smaller than that.
+# One byte past it is read and no more, so an answer past it is refused without
+# buffering the rest.
+MAX_ANSWER_BYTES = framing.MAX_BODY_LENGTH
+
+# What the names above hold by construction, checked when the module loads.
+# An explicit `raise`, never `assert`, which `python -O` strips. Each check
+# has a planted wrong fact in `tests/test_load_time_checks.py`.
+if len({EVENT_REDUCED, EVENT_ANSWERED, EVENT_SUPERSEDED, EVENT_UNREACHABLE}) != 4:
+    raise RuntimeError("produce: two events are one string, so a line cannot say how the run ended")
+if MAX_ANSWER_BYTES <= 0:
+    raise RuntimeError("produce: the answer's maximum admits no answer")
+
 # MODULE:NAME -- a dotted module path and one attribute of it.
 _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 _SPEC = re.compile(rf"({_IDENTIFIER}(?:\.{_IDENTIFIER})*):({_IDENTIFIER})")
@@ -180,7 +201,7 @@ def resolve(spec: str) -> Any:
     match = _SPEC.fullmatch(spec)
     if match is None:
         raise ValueError(f"{spec!r} is not MODULE:NAME")
-    return getattr(importlib.import_module(match.group(1)), match.group(2))
+    return getattr(importlib.import_module(match.group(1)), match.group(2))  # noqa: POT004 - --load and --carve name the deployer's own tree by design, imported in the deployer's own process
 
 
 def read_declarations(directory: Path | None) -> dict[str, str]:
@@ -236,6 +257,12 @@ def publish_epoch(
     return read, publication.generation if publication is not None else None
 
 
+class _Answer(Protocol):
+    """What both reads of an answer read from: a response, or the error that carries one."""
+
+    def read(self, amt: int, /) -> bytes: ...
+
+
 def _answer_body(raw: bytes) -> object:
     # The comparer answers JSON; anything between the two that does not is
     # reported as the text it sent rather than swallowed.
@@ -245,14 +272,31 @@ def _answer_body(raw: bytes) -> object:
         return raw.decode("utf-8", errors="replace")
 
 
+def _bounded_answer(status: int, answer: _Answer) -> tuple[int, object] | str:
+    """``(status, answer)``, or why an answer past ``MAX_ANSWER_BYTES`` is refused.
+
+    One byte past the maximum is read and no more: that byte is the evidence
+    the answer ran past it, and the rest is never buffered.
+    """
+
+    raw = answer.read(MAX_ANSWER_BYTES + 1)
+    if len(raw) > MAX_ANSWER_BYTES:
+        return (
+            f"an answer with status {status} runs past the maximum of "
+            f"{MAX_ANSWER_BYTES} bytes; refused, and the rest left unread"
+        )
+    return status, _answer_body(raw)
+
+
 def post(url: str, body: bytes, timeout: float = POST_TIMEOUT_SECONDS) -> tuple[int, object] | str:
-    """``POST`` one frame: ``(status, answer)``, or why nothing answered.
+    """``POST`` one frame: ``(status, answer)``, or why nothing readable answered.
 
     Any HTTP status is an answer, a refusal included -- the comparer said
-    something, and the line says what. Only a request that got no HTTP
-    response at all (refused connection, timeout, a name that does not
+    something, and the line says what. The string is a request that got no
+    HTTP response at all (refused connection, timeout, a name that does not
     resolve, or a listener that answered in something other than HTTP, which
-    is what a wrong port looks like) is the string.
+    is what a wrong port looks like), or an answer, of any status, longer than
+    ``MAX_ANSWER_BYTES``, which is refused before the rest of it is read.
     """
 
     request = urllib.request.Request(
@@ -263,9 +307,9 @@ def post(url: str, body: bytes, timeout: float = POST_TIMEOUT_SECONDS) -> tuple[
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, _answer_body(response.read())
+            return _bounded_answer(response.status, response)
     except urllib.error.HTTPError as error:
-        return error.code, _answer_body(error.read())
+        return _bounded_answer(error.code, error)
     except OSError as error:
         return " ".join(str(error).split())
     except http.client.HTTPException as error:
@@ -419,6 +463,13 @@ def main(
             f"(--dry-run reduces without one)"
         )
     return _run(args, dsn, open_store, out if out is not None else sys.stdout)
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("produce: a name in __all__ is not defined in the module")
 
 
 if __name__ == "__main__":

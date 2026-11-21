@@ -225,7 +225,7 @@ def observed_outcomes(contract: object) -> dict[str, str]:
     outcomes: dict[str, str] = {}
     for name in sorted(n for n in dir(contract) if n.startswith("test_")):
         try:
-            getattr(contract, name)()
+            getattr(contract, name)()  # noqa: POT004 - the arms are the contract's own test_ methods by design, enumerated from the class as pytest collects them
         except Exception as exc:  # noqa: BLE001 -- the outcome IS the datum: any exception an arm raises is recorded by type, never swallowed
             outcomes[name] = type(exc).__name__
         else:
@@ -237,3 +237,10 @@ def reds(outcomes: dict[str, str]) -> dict[str, str]:
     """The arms that did not pass, with what each raised."""
 
     return {name: outcome for name, outcome in outcomes.items() if outcome != "pass"}
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("conformance_calibration: a name in __all__ is not defined in the module")

@@ -105,7 +105,7 @@ generate = ["anthropic>=1.0"]
 # runs them against that release of `ration`, and moves the two together.
 # The version is the one uploaded from that repository's tag of the same
 # number.
-service = ["catincloud-ration==0.2.1"]
+service = ["catincloud-ration==0.3.0"]
 
 # Each one a URL of this repository, which PyPI checks against the trusted
 # publisher and shows under its verified details.

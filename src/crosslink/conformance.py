@@ -199,7 +199,7 @@ class ProjectSourceContract:
         declarations: dict[str, str],
         semantics: dict[str, str],
         sources: dict[str, str],
-    ):
+    ) -> ProjectSource:
         """Build the format under test from declaration, semantic, and source text.
 
         ``sources`` is keyed by the model that reads the declared tables.
@@ -209,12 +209,12 @@ class ProjectSourceContract:
 
     # -- shape ---------------------------------------------------------------
 
-    def test_satisfies_the_tier_one_protocol(self):
+    def test_satisfies_the_tier_one_protocol(self) -> None:
         project = self.make_project({}, {}, {})
         assert isinstance(project, ProjectSource)
         assert tier_of(project) >= 1
 
-    def test_declares_a_stable_format_name(self):
+    def test_declares_a_stable_format_name(self) -> None:
         first = self.make_project({}, {}, {})
         second = self.make_project({"d": a_single_key_declaration()}, {}, {})
         assert first.format == second.format
@@ -222,11 +222,11 @@ class ProjectSourceContract:
 
     # -- behaviour: the half a shape check cannot reach -----------------------
 
-    def test_an_empty_project_never_raises(self):
+    def test_an_empty_project_never_raises(self) -> None:
         declarations = self.make_project({}, {}, {}).declarations()
         assert declarations.is_empty or declarations.models
 
-    def test_malformed_input_never_raises(self):
+    def test_malformed_input_never_raises(self) -> None:
         """The property most likely to be got wrong, asserted directly."""
 
         declarations = self.make_project(
@@ -234,7 +234,7 @@ class ProjectSourceContract:
         ).declarations()
         assert declarations is not None
 
-    def test_malformed_input_is_explained_rather_than_silent(self):
+    def test_malformed_input_is_explained_rather_than_silent(self) -> None:
         """Degrading quietly still owes the reader a reason."""
 
         declarations = self.make_project(
@@ -242,7 +242,7 @@ class ProjectSourceContract:
         ).declarations()
         assert declarations.notes, "a skipped declaration must leave a note"
 
-    def test_a_malformed_source_declaration_never_raises_and_is_explained(self):
+    def test_a_malformed_source_declaration_never_raises_and_is_explained(self) -> None:
         """Same contract on the source channel. Asserted separately because it
         is a different parser: a format can be careful on one input and not on
         the other, and one test over both would pass on either."""
@@ -255,14 +255,14 @@ class ProjectSourceContract:
 
     # -- the declared channel ------------------------------------------------
 
-    def test_a_single_column_key_is_read(self):
+    def test_a_single_column_key_is_read(self) -> None:
         declarations = self.make_project(
             {"dim_date": a_single_key_declaration()}, {}, {}
         ).declarations()
         keys = [k for k in declarations.declared_keys if k.model == "dim_date"]
         assert [k.columns for k in keys] == [("date",)]
 
-    def test_a_composite_key_keeps_every_column_and_their_order(self):
+    def test_a_composite_key_keeps_every_column_and_their_order(self) -> None:
         """The failure this catches is silent: a truncated key still looks
         like a declared grain, and reads as a narrower one that is simply
         wrong rather than as a missing declaration."""
@@ -275,7 +275,7 @@ class ProjectSourceContract:
         assert keys[0].columns == ("date", "provider", "product_id", "order_type")
         assert keys[0].is_composite
 
-    def test_a_declared_join_carries_both_sides(self):
+    def test_a_declared_join_carries_both_sides(self) -> None:
         declarations = self.make_project({"j": a_join_declaration()}, {}, {}).declarations()
         assert len(declarations.declared_joins) == 1
         join = declarations.declared_joins[0]
@@ -284,7 +284,7 @@ class ProjectSourceContract:
         assert join.from_columns == ("date",)
         assert join.to_columns == ("date",)
 
-    def test_a_dangling_join_side_is_agreed_by_notes_and_findings(self):
+    def test_a_dangling_join_side_is_agreed_by_notes_and_findings(self) -> None:
         """The notes channel and the findings layer answer "does this join
         dangle?" with one shared rule (``model.absent_join_sides``). This arm
         is the tripwire: a producer that checks ``from_model`` alone yields
@@ -298,7 +298,7 @@ class ProjectSourceContract:
         assert any("ghost_dim" in f.subject for f in found)
         assert any("ghost_dim" in note for note in declarations.notes)
 
-    def test_semantic_models_and_metrics_are_read(self):
+    def test_semantic_models_and_metrics_are_read(self) -> None:
         declarations = self.make_project(
             {}, {"s": a_semantic_definition()}, {}
         ).declarations()
@@ -307,7 +307,7 @@ class ProjectSourceContract:
 
     # -- the source channel --------------------------------------------------
 
-    def test_an_external_source_is_read_and_attributed_to_its_reader(self):
+    def test_an_external_source_is_read_and_attributed_to_its_reader(self) -> None:
         declarations = self.make_project(
             {}, {}, {"orders_raw": a_source_declaration()}
         ).declarations()
@@ -319,7 +319,7 @@ class ProjectSourceContract:
         assert source.columns == ("placed_at", "amount")
         assert "orders_raw" in source.read_by
 
-    def test_a_source_requires_a_system_it_cannot_invent(self):
+    def test_a_source_requires_a_system_it_cannot_invent(self) -> None:
         """A source entry with no name is skipped and explained, not given a
         placeholder. The consumer identifies a source as ``system.table``, so a
         fabricated system produces a finding about a table that does not
@@ -331,7 +331,7 @@ class ProjectSourceContract:
         assert declarations.sources == ()
         assert declarations.notes
 
-    def test_mixed_schema_presence_under_one_system_never_raises(self):
+    def test_mixed_schema_presence_under_one_system_never_raises(self) -> None:
         """One schema'd and one unschema'd table under the same system is
         valid input, and it is exactly the shape a raw ``(system, schema,
         table)`` sort crashes on - ``None`` and ``str`` do not compare. The
@@ -350,7 +350,7 @@ class ProjectSourceContract:
         assert len(declarations.sources) == 2
         assert [s.schema_name for s in declarations.sources] == [None, "raw"]
 
-    def test_one_table_declared_twice_is_one_source_with_two_readers(self):
+    def test_one_table_declared_twice_is_one_source_with_two_readers(self) -> None:
         """Emitting it twice would be reported as two contracts with the
         warehouse, so a single missing table would raise two findings."""
 
@@ -361,7 +361,7 @@ class ProjectSourceContract:
         assert len(declarations.sources) == 1
         assert set(declarations.sources[0].read_by) == {"reader_a", "reader_b"}
 
-    def test_a_project_that_only_declares_sources_is_not_empty(self):
+    def test_a_project_that_only_declares_sources_is_not_empty(self) -> None:
         """A project that builds nothing but names what it reads has still
         said something, and reporting it as empty discards the only statement
         it made."""
@@ -371,7 +371,7 @@ class ProjectSourceContract:
         ).declarations()
         assert not declarations.is_empty
 
-    def test_the_declared_channel_is_not_vacuous(self):
+    def test_the_declared_channel_is_not_vacuous(self) -> None:
         """Guards every assertion above. If the builders stopped producing
         anything, the tests would still pass while measuring nothing."""
 
@@ -385,7 +385,7 @@ class ProjectSourceContract:
         assert declarations.semantic_models
         assert declarations.sources
 
-    def test_freshness_is_never_a_bare_boolean(self):
+    def test_freshness_is_never_a_bare_boolean(self) -> None:
         """A format with no compiled artifact must say so, not say 'current'."""
 
         declarations = self.make_project({}, {}, {}).declarations()
@@ -395,23 +395,34 @@ class ProjectSourceContract:
 class FingerprintedProjectContract(ProjectSourceContract):
     """Tier 2. Inherits every tier-1 assertion."""
 
-    def test_satisfies_the_tier_two_protocol(self):
+    def make_project(
+        self,
+        declarations: dict[str, str],
+        semantics: dict[str, str],
+        sources: dict[str, str],
+    ) -> FingerprintedProject:
+        """As tier 1's, narrowed: a tier-2 contract is met by a tier-2 project,
+        and the assertions below call ``fingerprint()`` on what this returns."""
+
+        raise NotImplementedError  # pragma: no cover - always overridden
+
+    def test_satisfies_the_tier_two_protocol(self) -> None:
         assert isinstance(self.make_project({}, {}, {}), FingerprintedProject)
         assert tier_of(self.make_project({}, {}, {})) >= 2
 
-    def test_a_fingerprint_is_stable_across_calls(self):
+    def test_a_fingerprint_is_stable_across_calls(self) -> None:
         project = self.make_project({}, {}, {})
         assert project.fingerprint() == project.fingerprint()
 
-    def test_two_identical_projects_fingerprint_alike(self):
+    def test_two_identical_projects_fingerprint_alike(self) -> None:
         left = self.make_project({"a": a_single_key_declaration()}, {}, {})
         right = self.make_project({"a": a_single_key_declaration()}, {}, {})
         assert left.fingerprint().layers == right.fingerprint().layers
 
-    def test_fingerprinting_never_raises_on_an_empty_project(self):
+    def test_fingerprinting_never_raises_on_an_empty_project(self) -> None:
         assert self.make_project({}, {}, {}).fingerprint() is not None
 
-    def test_gaining_an_external_source_is_visible_as_drift(self):
+    def test_gaining_an_external_source_is_visible_as_drift(self) -> None:
         """A new warehouse dependency is a change in the project. A fingerprint
         that missed it would report no drift on the one axis a snapshot exists
         to watch."""
@@ -421,9 +432,12 @@ class FingerprintedProjectContract(ProjectSourceContract):
             {}, {}, {"reader": a_source_declaration()}
         ).fingerprint()
         assert without.layers != with_source.layers
-        assert with_source.changed_layers(without)
+        # The contract asks more of a fingerprint than `ProjectFingerprint`
+        # declares: `changed_layers` is the model's, not the protocol's, and
+        # widening the protocol is a change to what tier 2 promises.
+        assert with_source.changed_layers(without)  # type: ignore[attr-defined]  # asserted beyond the protocol, on purpose; see above
 
-    def test_repointing_a_source_to_another_schema_is_drift(self):
+    def test_repointing_a_source_to_another_schema_is_drift(self) -> None:
         """Two tables of the same name in different datasets are two different
         warehouse objects. A hash over the bare table name calls the swap no
         change - and it is the change most likely to be made by accident."""
@@ -437,8 +451,15 @@ class FingerprintedProjectContract(ProjectSourceContract):
         assert here.layers != there.layers
 
 
-@pytest.fixture
-def _conformance_marker():  # pragma: no cover - keeps pytest importing this module happy
+@pytest.fixture  # type: ignore[untyped-decorator]  # pytest is the optional `conformance` extra, which the type checker reads this tree without
+def _conformance_marker() -> None:  # pragma: no cover - keeps pytest importing this module happy
     """Present so this module is importable as a plugin without side effects."""
 
     return None
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("conformance: a name in __all__ is not defined in the module")
