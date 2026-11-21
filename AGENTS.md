@@ -204,13 +204,39 @@ everywhere or nowhere. Nothing checks it.
   `tests` jobs install the extra from the package index, with no
   credential. There is no skip: a suite that cannot import the codec the
   comparer runs is red.
-- **`src` is held to a coding standard, read by
-  `scripts/check_power_of_ten.py`** in the `power of ten` job: cyclomatic
-  ceiling 15, the type checker's default, no recursion, no `while True`, no
-  `global`, no blind `except`. The check is the **one reader of
-  suppressions**: a deviation is a `noqa` or a `type: ignore[code]` that
-  names the rule with its reason on the same line, and one that is unused or
-  gives no reason is red.
+- **`src` is held to a coding standard at its strictest class, class A, read
+  by `scripts/check_power_of_ten.py`** in the `power of ten` job: cyclomatic
+  ceiling 10, at most 40 statements a function, strict typing, no recursion,
+  no `while True`, no `global` or `nonlocal`, no mutable default argument, no
+  blind `except`, and no call or load by a name computed at run time. The
+  vendored `check_*.py` copies under `scripts/` are class B, named one by one
+  in the job because the rest of that directory is this repository's own
+  class C code: ceiling 15, 60 statements, the type checker's default. A copy
+  that misses a class B ceiling is fixed at its source. The check is the
+  **one reader of suppressions**: a deviation is a `noqa` or a
+  `type: ignore[code]` that names the rule with its reason on the same line,
+  and one that is unused or gives no reason is red.
+  - **Four class A deviations are the design.** `produce.resolve` imports the
+    module `--load` and `--carve` name, which is the deployer's own tree;
+    `conformance_calibration.observed_outcomes` calls a contract's `test_`
+    methods by name, as pytest collects them; the tier-2 contract calls
+    `changed_layers`, which the model's `Fingerprint` declares and the
+    protocol does not; and the contract's one fixture is decorated by
+    pytest, which the type checker reads this tree without.
+  - **`power-of-ten.json` at the root declares what `src`'s own suite
+    reads.** Rule 3 lists `src`'s two reads of what another process sends:
+    the comparer's receive, bounded at a whole frame at `ration`'s maximum
+    and read by `tests/test_serve.py::TestTheReceiveIsBounded`, and the
+    producer's read of the comparer's answer, bounded at `MAX_ANSWER_BYTES`
+    and read by `tests/test_produce.py::TestTheAnswerIsBounded`. Each names a
+    violator that refuses too late. `deliver.py`'s `git` calls work on a
+    clone this process made, so they are not on the list. Rule 5 names
+    `tests/test_load_time_checks.py`, whose `PLANTS` table holds one wrong
+    fact per load-time check in `src`, and which walks `src` so a check
+    added with no plant reads red. A load-time check is an explicit `raise`
+    at a module's top level, never an `assert`. The day `src` adds a read
+    from another process, the declaration is false, and the same change
+    lists the read and names its reader.
 - Enable the hook per clone - it does not install itself:
   `git config core.hooksPath .githooks`. `scripts/check_hook_mode.py`, in the
   `closing keywords` job, refuses a tracked `.githooks/commit-msg` whose

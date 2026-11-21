@@ -172,8 +172,8 @@ Three decisions its docstring states rather than absorbs (l.19-42):
   regex over the SQL (`_REF_CALL` l.89-95, `_SOURCE_CALL` l.96-98), no Jinja
   engine, no dbt dependency. A call inside a SQL comment still renders and
   *is* a dependency, so it matches; a Jinja comment `{# ... #}` never renders,
-  so it is stripped first (`_JINJA_COMMENT`, l.88, applied at l.411 and
-  l.428). An expression the regex cannot read yields a missing edge, never a
+  so it is stripped first (`_JINJA_COMMENT`, l.88, applied at l.401 and
+  l.418). An expression the regex cannot read yields a missing edge, never a
   guessed one.
 - **Freshness is `NOT_APPLICABLE` about this reduction, not about dbt** -
   dbt compiles a manifest that could be fresh or stale, but this reduction
@@ -182,26 +182,26 @@ Three decisions its docstring states rather than absorbs (l.19-42):
 - **`read_by` is derived, never declared** - a model that reads a source
   says so in its own SQL, so attribution comes from `source()` extraction
   over the *kept* models' files only (l.145-159, `_readers_by_table`
-  l.423-431), and the "read by models that do not exist" note the Dagster
+  l.413-421), and the "read by models that do not exist" note the Dagster
   format needs has no dbt equivalent (l.36-42).
 
 The walk in pieces: `_project_header` (l.286-319) reads `dbt_project.yml`
 and falls back to the name `"unnamed"` and `("models",)` with a note on every
 failure shape (missing, unreadable, not a mapping, no name);
-`_normalized_model_paths` (l.445-518) is the one reading of `model-paths`,
+`_normalized_model_paths` (l.435-508) is the one reading of `model-paths`,
 shared with the disk walk so the two cannot decide differently, dropping
 every `.` segment and every empty segment but a leading one (which makes
 the entry absolute) so `./models`, `models/` and
 `models/./staging` route as `models` and `models/staging` do, and dropping,
 each with a note, an absolute entry, one with a `..` segment, whether or not
 it would leave the root, and one that collapses to nothing; `_route`
-(l.321-376) sorts files under the model paths into the parsers' channels **by
+(l.321-366) sorts files under the model paths into the parsers' channels **by
 top-level key**, so one schema file carrying `models:` beside `sources:`
 feeds two parsers, and a file declaring none of the four vocabularies is
-noted; `_models_from_sql` (l.378-421) makes one model per SQL file - name
+noted; `_models_from_sql` (l.368-411) makes one model per SQL file - name
 from the stem, dependencies from `ref()`, layer from the first directory
-under the model path (`_layer_of`, l.434-442) - and on a **duplicate stem
-keeps the first in path order with a note** (l.405-410), the converge-and-
+under the model path (`_layer_of`, l.424-432) - and on a **duplicate stem
+keeps the first in path order with a note** (l.395-400), the converge-and-
 note posture rather than the Dagster format's refusal, because dbt itself
 refuses duplicates at compile time and a read path cannot.
 
@@ -232,19 +232,20 @@ model-level composite key, `_composite_key`, l.137 and l.140).
   two-argument form (model second, the same reading `dbt.py`'s regex
   applies), or a bare alphanumeric name; anything with punctuation is
   refused with a note rather than half-parsed.
-- `parse_source_declarations` (l.195-291): keyed by the reading model. Two
+- `parse_source_declarations` (l.195-261): keyed by the reading model. Two
   models declaring the same table **converge on one source with two readers**
-  (l.207-211, l.263-276) - emitting it twice would be reported as two
+  (l.207-211, and `_declare_tables` l.297-308) - emitting it twice would be reported as two
   contracts with the warehouse; columns are unioned in first-seen order
   because a narrower list is a narrower statement, not a contradiction. A
   file that parsed but declared no table is the failure worth naming
-  (l.278-285): it reads as "this model has no external reads", a claim
+  (l.248-255): it reads as "this model has no external reads", a claim
   indistinguishable from having no file. The result is sorted by
   `source_sort_key`, never the raw identity triple, because the triple holds
-  `str | None` and sorting it is a `TypeError` on valid input (l.287-291).
-- `parse_semantics` (l.294-367): semantic models and metrics, each carrying
-  a `definition_sha` over a sorted re-dump of its entry (l.333, l.356). The
-  duplicate rule is carried here (l.299-304): the same name with
+  `str | None` and sorting it is a `TypeError` on valid input (l.257-261).
+- `parse_semantics` (l.312-342): semantic models and metrics, each carrying
+  a `definition_sha` over a sorted re-dump of its entry (l.383, l.398). The
+  duplicate rule is stated here (l.317-322) and carried by `_converge`
+  (l.355-369): the same name with
   identical content is one statement; with different content **the first
   declaration wins and the loss is a note**, so a snapshot this parser emits
   never carries the conflict the delta layer would otherwise refuse far from
@@ -302,12 +303,12 @@ semantics, sources)` (l.197-208); every arm runs. What the arms assert, READ:
 | `test_the_declared_channel_is_not_vacuous` | the builders producing nothing while every arm above still passes (l.374-386) |
 | `test_freshness_is_never_a_bare_boolean` | "current" where the honest answer is "not applicable" |
 
-| arm (tier 2, `FingerprintedProjectContract`, l.395-437) | the failure it exists for |
+| arm (tier 2, `FingerprintedProjectContract`, l.395-451) | the failure it exists for |
 | --- | --- |
 | `test_satisfies_the_tier_two_protocol`, `test_a_fingerprint_is_stable_across_calls`, `test_fingerprinting_never_raises_on_an_empty_project` | an unstable or raising fingerprint |
 | `test_two_identical_projects_fingerprint_alike` | two identical projects reading as drift |
 | `test_gaining_an_external_source_is_visible_as_drift` | a new warehouse dependency reading as no change on the one axis a snapshot exists to watch |
-| `test_repointing_a_source_to_another_schema_is_drift` | a hash over the bare table name calling a dataset swap no change (l.427-429: "the change most likely to be made by accident") |
+| `test_repointing_a_source_to_another_schema_is_drift` | a hash over the bare table name calling a dataset swap no change (l.441-443: "the change most likely to be made by accident") |
 
 The contract's `make_project` **takes three arguments, and the third is not
 optional**: external sources are a required part of the contract,
@@ -361,7 +362,7 @@ READ from the code:
 `layered_fingerprint`; only `models` (name, dependencies, layer) and `sources`
 (identity) are. A key widened, a join re-pointed, a metric's measure changed -
 none moves any layer's hash. That is why the wire payload carries a second
-digest beside the layers: `snapshot_digest` (`wire.py` l.144-167) hashes the
+digest beside the layers: `snapshot_digest` (`wire.py` l.145-168) hashes the
 canonicalised snapshot over `format`, `name` and **all six nouns**, with
 `freshness` and `notes` on a drop-list so a noun added to
 `ProjectDeclarations` joins the digest by default - "the defect this digest

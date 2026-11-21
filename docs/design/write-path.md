@@ -340,7 +340,7 @@ sequenceDiagram
         St-->>P: Publication(generation)
         P->>P: frame.encode(FINGERPRINT, Sequence.start(generation), envelope bytes)
         P->>C: POST to the --post URL, the sender's path - once
-        C-->>P: status + answer - line `answered` (or `unreachable` if nothing answered in HTTP)
+        C-->>P: status + answer - line `answered` (or `unreachable` if nothing answered in HTTP, or the answer ran past MAX_ANSWER_BYTES)
     end
 ```
 
