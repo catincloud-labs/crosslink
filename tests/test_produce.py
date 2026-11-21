@@ -26,6 +26,9 @@ import io
 import json
 import socket
 import threading
+import urllib.error
+import urllib.request
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -483,10 +486,33 @@ class Supply:
         self.size = size
         self.handed = 0
 
-    def read(self, amt: int, /) -> bytes:
-        given = max(0, min(amt, self.size - self.handed))
+    def read(self, amt: int = -1, /) -> bytes:
+        # A read with no bound, or a negative one, takes the rest, as a
+        # stream's does: that is the read the rule refuses.
+        left = self.size - self.handed
+        given = left if amt < 0 else max(0, min(amt, left))
         self.handed += given
         return b"x" * given
+
+    def readline(self, limit: int = -1, /) -> bytes:
+        return self.read(limit)
+
+    def close(self) -> None:
+        pass
+
+
+class SuppliedResponse(Supply):
+    """What ``urlopen`` returns on a success, with a counted ``Supply`` as its body."""
+
+    def __init__(self, status: int, size: int) -> None:
+        super().__init__(size)
+        self.status = status
+
+    def __enter__(self) -> SuppliedResponse:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        pass
 
 
 def reads_the_whole_answer(status: int, answer) -> tuple[int, object] | str:
@@ -552,6 +578,24 @@ class TestTheAnswerIsBounded:
 
     def test_the_read_refuses_with_one_byte_past_the_maximum_read(self):
         refuses_unread_past_the_maximum(_bounded_answer)
+
+    @pytest.mark.parametrize("status", [200, 413], ids=["a-success", "a-refusal"])
+    def test_post_reads_one_byte_past_the_maximum_on_either_branch(self, status, monkeypatch):
+        """The two reads `post` itself makes, counted: the response on a
+        success, and the `HTTPError` urllib raises for a refusal. A `post`
+        that read either answer whole would hand out all three maximums."""
+
+        supply = SuppliedResponse(status, 3 * MAX_ANSWER_BYTES)
+
+        def urlopen(request, timeout):
+            if status == 200:
+                return supply
+            raise urllib.error.HTTPError(request.full_url, status, "refused", Message(), supply)
+
+        monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+        answer = post(f"http://127.0.0.1:1/{SENDER}", b"frame")
+        assert isinstance(answer, str)
+        assert supply.handed <= MAX_ANSWER_BYTES + 1, f"read {supply.handed} bytes of the answer"
 
     def test_a_reader_that_buffers_the_whole_answer_is_refused_by_this_reading(self):
         with pytest.raises(AssertionError, match="read 3145728 bytes"):

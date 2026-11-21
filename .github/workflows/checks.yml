@@ -420,7 +420,7 @@ jobs:
   # which Dependabot's `pip` entry moves. A deviation is a `noqa` or
   # `type: ignore[code]` naming the rule with its reason on the same line, and
   # the check counts the adopted-code markers in each class and refuses a pull
-  # request that adds one.
+  # request that adds one. Advisory.
   power-of-ten:
     name: power of ten
     runs-on: ubuntu-latest

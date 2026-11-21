@@ -216,7 +216,9 @@ everywhere or nowhere. Nothing checks it.
   **one reader of suppressions**: a deviation is a `noqa` or a
   `type: ignore[code]` that names the rule with its reason on the same line,
   and one that is unused or gives no reason is red.
-  - **Four class A deviations are the design.** `produce.resolve` imports the
+  - **Four of the five class A deviations the checker counts are the design;**
+    the fifth is the blind `except` with which the calibration's outcome
+    reader records what an arm raised. The four: `produce.resolve` imports the
     module `--load` and `--carve` name, which is the deployer's own tree;
     `conformance_calibration.observed_outcomes` calls a contract's `test_`
     methods by name, as pytest collects them; the tier-2 contract calls
@@ -233,7 +235,7 @@ everywhere or nowhere. Nothing checks it.
     clone this process made, so they are not on the list. Rule 5 names
     `tests/test_load_time_checks.py`, whose `PLANTS` table holds one wrong
     fact per load-time check in `src`, and which walks `src` so a check
-    added with no plant reads red. A load-time check is an explicit `raise`
+    added with a message of its own and no plant reads red. A load-time check is an explicit `raise`
     at a module's top level, never an `assert`. The day `src` adds a read
     from another process, the declaration is false, and the same change
     lists the read and names its reader.

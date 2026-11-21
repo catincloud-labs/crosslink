@@ -175,9 +175,9 @@ _DETAIL_LIMIT = 200
 
 # The most of the comparer's answer this process reads, on a success and on a
 # refusal alike: the answer comes from another owner of state, so it is read
-# against a stated maximum. The number is the frame's, `ration.frame`'s
-# `MAX_BODY_LENGTH`, the one maximum this package states for what another
-# process sends it. An answer reports on one frame, far smaller than that.
+# against a stated maximum. The answer is JSON, not a frame, so the number is
+# borrowed: `ration.frame`'s `MAX_BODY_LENGTH`, the most body a frame carries.
+# An answer reports on one frame, and is far smaller than that.
 # One byte past it is read and no more, so an answer past it is refused without
 # buffering the rest.
 MAX_ANSWER_BYTES = framing.MAX_BODY_LENGTH

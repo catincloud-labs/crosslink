@@ -12,8 +12,10 @@ The second case reads the population a different way from the table: it walks
 every module under `src/crosslink`, reads the message of every `raise` in a
 top-level statement other than a `def`, a `class` or the `__main__` guard, and
 requires that set, module by module, to equal the messages the table plants.
-A check added with no plant is red here, and so is a new arm of an existing
-check with its own message, or a plant whose check is gone.
+A check added with a message of its own and no plant is red here, and so is
+a plant whose check is gone. The walk reads messages, not raises: a second
+check that reuses a planted message, and a check made inside a function the
+module calls when it loads, both read green.
 
 This file is the coding standard's rule 5 reader for `src`, declared in
 `power-of-ten.json`:
