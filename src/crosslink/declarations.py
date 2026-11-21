@@ -133,7 +133,7 @@ def parse_declarations(
     return keys, joins, notes
 
 
-def _composite_key(model: str, entry: dict, notes: list[str]) -> DeclaredKey | None:
+def _composite_key(model: str, entry: dict[str, Any], notes: list[str]) -> DeclaredKey | None:
     """A model-level ``unique_combination_of_columns``, when present and sane."""
 
     for name, payload in _test_names(entry.get("tests")):
@@ -152,7 +152,7 @@ def _composite_key(model: str, entry: dict, notes: list[str]) -> DeclaredKey | N
 
 
 def _single_column_keys(
-    model: str, entry: dict, joins: list[DeclaredJoin], notes: list[str]
+    model: str, entry: dict[str, Any], joins: list[DeclaredJoin], notes: list[str]
 ) -> list[DeclaredKey]:
     """Column-level ``unique`` keys, collecting ``relationships`` joins en route.
 
@@ -241,39 +241,9 @@ def parse_source_declarations(
                 continue
             schema = entry.get("schema")
             schema_name = schema if isinstance(schema, str) and schema else None
-
-            for table_entry in entry.get("tables") or []:
-                if not isinstance(table_entry, dict):
-                    continue
-                table = table_entry.get("name")
-                if not isinstance(table, str) or not table:
-                    notes.append(
-                        f"source {system!r} in {origin!r} declares a table with "
-                        "no name; skipped"
-                    )
-                    continue
-                declared_here += 1
-                candidate = ExternalSource(
-                    system=system,
-                    table=table,
-                    schema_name=schema_name,
-                    columns=_named(table_entry.get("columns")),
-                    read_by=(origin,),
-                )
-                found_key = source_identity(candidate)
-                existing = found.get(found_key)
-                if existing is None:
-                    found[found_key] = candidate
-                else:
-                    merged = list(existing.columns)
-                    merged.extend(
-                        c for c in candidate.columns if c not in existing.columns
-                    )
-                    found[found_key] = replace(
-                        existing,
-                        columns=tuple(merged),
-                        read_by=existing.read_by + (origin,),
-                    )
+            declared_here += _declare_tables(
+                found, entry.get("tables") or [], origin, system, schema_name, notes
+            )
 
         # A file that parsed but declared nothing is the failure mode worth
         # naming: it reads as "this model has no external reads", which is a
@@ -289,6 +259,54 @@ def parse_source_declarations(
     # TypeError the moment one system carries both a schema'd and an
     # unschema'd table - which is valid input, and this function never raises.
     return sorted(found.values(), key=source_sort_key), notes
+
+
+def _declare_tables(
+    found: dict[tuple[str, str | None, str], ExternalSource],
+    tables: list[Any],
+    origin: str,
+    system: str,
+    schema_name: str | None,
+    notes: list[str],
+) -> int:
+    """Converge one source entry's tables into ``found``; how many it declared.
+
+    A table already in ``found`` gains this declaration's new columns, in
+    first-seen order, and ``origin`` as one more reader.
+    """
+
+    declared = 0
+    for table_entry in tables:
+        if not isinstance(table_entry, dict):
+            continue
+        table = table_entry.get("name")
+        if not isinstance(table, str) or not table:
+            notes.append(
+                f"source {system!r} in {origin!r} declares a table with "
+                "no name; skipped"
+            )
+            continue
+        declared += 1
+        candidate = ExternalSource(
+            system=system,
+            table=table,
+            schema_name=schema_name,
+            columns=_named(table_entry.get("columns")),
+            read_by=(origin,),
+        )
+        found_key = source_identity(candidate)
+        existing = found.get(found_key)
+        if existing is None:
+            found[found_key] = candidate
+            continue
+        merged = list(existing.columns)
+        merged.extend(c for c in candidate.columns if c not in existing.columns)
+        found[found_key] = replace(
+            existing,
+            columns=tuple(merged),
+            read_by=existing.read_by + (origin,),
+        )
+    return declared
 
 
 def parse_semantics(
@@ -318,53 +336,68 @@ def parse_semantics(
         if not isinstance(document, dict):
             continue
 
-        for entry in document.get("semantic_models") or []:
-            if not isinstance(entry, dict):
-                continue
-            name = entry.get("name")
-            if not isinstance(name, str) or not name:
-                continue
-            target = _referenced_model(entry.get("model")) or ""
-            candidate = SemanticModel(
-                name=name,
-                model=target,
-                dimensions=_named(entry.get("dimensions")),
-                measures=_named(entry.get("measures")),
-                definition_sha=definition_hash(yaml.safe_dump(entry, sort_keys=True)),
-            )
-            held = models.get(name)
-            if held is None:
-                models[name] = candidate
-            elif held != candidate:
-                notes.append(
-                    f"semantic model {name!r} is declared again with different "
-                    "content; the first declaration wins"
-                )
-
-        for entry in document.get("metrics") or []:
-            if not isinstance(entry, dict):
-                continue
-            name = entry.get("name")
-            if not isinstance(name, str) or not name:
-                continue
-            params = entry.get("type_params")
-            measure = params.get("measure") if isinstance(params, dict) else None
-            candidate_metric = Metric(
-                name=name,
-                measure=measure if isinstance(measure, str) else None,
-                kind=str(entry.get("type") or "simple"),
-                definition_sha=definition_hash(yaml.safe_dump(entry, sort_keys=True)),
-            )
-            held_metric = metrics.get(name)
-            if held_metric is None:
-                metrics[name] = candidate_metric
-            elif held_metric != candidate_metric:
-                notes.append(
-                    f"metric {name!r} is declared again with different "
-                    "content; the first declaration wins"
-                )
+        _read_semantic_models(document.get("semantic_models") or [], models, notes)
+        _read_metrics(document.get("metrics") or [], metrics, notes)
 
     return list(models.values()), list(metrics.values()), notes
+
+
+def _named_entries(entries: list[Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Each mapping in ``entries`` that carries a non-empty string ``name``, with it."""
+
+    return [
+        (entry["name"], entry)
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]
+    ]
+
+
+def _converge[T](held: dict[str, T], name: str, candidate: T, noun: str, notes: list[str]) -> None:
+    """Hold ``candidate`` under ``name`` unless a declaration already holds it.
+
+    An identical restatement is one statement. A different one loses to the
+    first declaration, and the loss is a note.
+    """
+
+    existing = held.get(name)
+    if existing is None:
+        held[name] = candidate
+    elif existing != candidate:
+        notes.append(
+            f"{noun} {name!r} is declared again with different "
+            "content; the first declaration wins"
+        )
+
+
+def _read_semantic_models(
+    entries: list[Any], models: dict[str, SemanticModel], notes: list[str]
+) -> None:
+    """Converge one document's ``semantic_models`` into ``models``."""
+
+    for name, entry in _named_entries(entries):
+        candidate = SemanticModel(
+            name=name,
+            model=_referenced_model(entry.get("model")) or "",
+            dimensions=_named(entry.get("dimensions")),
+            measures=_named(entry.get("measures")),
+            definition_sha=definition_hash(yaml.safe_dump(entry, sort_keys=True)),
+        )
+        _converge(models, name, candidate, "semantic model", notes)
+
+
+def _read_metrics(entries: list[Any], metrics: dict[str, Metric], notes: list[str]) -> None:
+    """Converge one document's ``metrics`` into ``metrics``."""
+
+    for name, entry in _named_entries(entries):
+        params = entry.get("type_params")
+        measure = params.get("measure") if isinstance(params, dict) else None
+        candidate = Metric(
+            name=name,
+            measure=measure if isinstance(measure, str) else None,
+            kind=str(entry.get("type") or "simple"),
+            definition_sha=definition_hash(yaml.safe_dump(entry, sort_keys=True)),
+        )
+        _converge(metrics, name, candidate, "metric", notes)
 
 
 def _named(entries: Any) -> tuple[str, ...]:
@@ -375,3 +408,10 @@ def _named(entries: Any) -> tuple[str, ...]:
     return tuple(
         e["name"] for e in entries if isinstance(e, dict) and isinstance(e.get("name"), str)
     )
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("declarations: a name in __all__ is not defined in the module")

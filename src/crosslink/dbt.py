@@ -343,18 +343,8 @@ class DbtProject:
                 continue
             if not path.endswith((".yml", ".yaml")):
                 continue
-            try:
-                document = yaml.safe_load(text)
-            except yaml.YAMLError as exc:
-                notes.append(
-                    f"schema file {path!r} is not readable YAML "
-                    f"({exc.__class__.__name__}); skipped"
-                )
-                continue
-            if not isinstance(document, dict):
-                notes.append(
-                    f"schema file {path!r} is not a mapping; skipped"
-                )
+            document = _schema_document(path, text, notes)
+            if document is None:
                 continue
             routed = False
             if "models" in document:
@@ -442,7 +432,7 @@ def _layer_of(path: str, model_paths: tuple[str, ...]) -> str | None:
     return None
 
 
-def _normalized_model_paths(document: dict) -> tuple[tuple[str, ...], list[str]]:
+def _normalized_model_paths(document: dict[str, object]) -> tuple[tuple[str, ...], list[str]]:
     """The one reading of ``model-paths``, shared by the header parse and the
     disk walk so the two cannot decide differently.
 
@@ -532,3 +522,33 @@ def _model_paths_of(project_text: str | None) -> tuple[str, ...]:
         return _DEFAULT_MODEL_PATHS
     paths, _ = _normalized_model_paths(document)
     return paths
+
+
+def _schema_document(path: str, text: str, notes: list[str]) -> dict[str, object] | None:
+    """A schema file's document, or ``None`` with a note when it is not a mapping.
+
+    A file that is not readable YAML, or whose document is not a mapping,
+    reaches no parser, and the note says which of the two it was.
+    """
+
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        notes.append(
+            f"schema file {path!r} is not readable YAML "
+            f"({exc.__class__.__name__}); skipped"
+        )
+        return None
+    if not isinstance(document, dict):
+        notes.append(
+            f"schema file {path!r} is not a mapping; skipped"
+        )
+        return None
+    return document
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("dbt: a name in __all__ is not defined in the module")

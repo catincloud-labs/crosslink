@@ -11,6 +11,96 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `docs/design/reduction-side.md`, *The dbt format (`dbt.py`)*, its line citations
+
+Read 2026-11-21 against `src/crosslink/dbt.py` at the change that holds
+`src` to class A. That change moves `_route`'s read of a schema file into a
+helper at the end of the module, so every line below `_route` moved up ten.
+Six passages moved, and in each only a line citation changed. They read:
+
+> so it is stripped first (`_JINJA_COMMENT`, l.88, applied at l.411 and l.428).
+
+and
+
+> over the *kept* models' files only (l.145-159, `_readers_by_table` l.423-431),
+
+and
+
+> `_normalized_model_paths` (l.445-518) is the one reading of `model-paths`,
+
+and
+
+> `_route` (l.321-376) sorts files under the model paths into the parsers' channels
+
+and
+
+> `_models_from_sql` (l.378-421) makes one model per SQL file
+
+and
+
+> under the model path (`_layer_of`, l.434-442) - and on a **duplicate stem keeps the first in path order with a note** (l.405-410),
+
+## `docs/design/reduction-side.md`, *The parsers (`declarations.py`)*, its line citations
+
+Read 2026-11-21 against `src/crosslink/declarations.py` at the same change.
+It moves the table walk of `parse_source_declarations` into
+`_declare_tables`, and the two walks of `parse_semantics` into
+`_read_semantic_models` and `_read_metrics`, which share `_converge`. Four
+passages moved. In the first three only a line citation changed; the
+fourth also said the duplicate rule is carried in `parse_semantics`, which
+now states it and leaves carrying it to `_converge`. They read:
+
+> - `parse_source_declarations` (l.195-291): keyed by the reading model. Two models declaring the same table **converge on one source with two readers** (l.207-211, l.263-276) -
+
+and
+
+> A file that parsed but declared no table is the failure worth naming (l.278-285):
+
+and
+
+> because the triple holds `str | None` and sorting it is a `TypeError` on valid input (l.287-291).
+
+and
+
+> - `parse_semantics` (l.294-367): semantic models and metrics, each carrying a `definition_sha` over a sorted re-dump of its entry (l.333, l.356). The duplicate rule is carried here (l.299-304):
+
+## `docs/design/reduction-side.md`, *The seam, and the contract that checks it*, its line citations
+
+Read 2026-11-21 against `src/crosslink/conformance.py` at the same change.
+It gives the tier-2 contract its own `make_project`, narrowed to a tier-2
+project, and a comment on its `changed_layers` call. Two passages moved,
+and in each only a line citation changed. They read:
+
+> | arm (tier 2, `FingerprintedProjectContract`, l.395-437) |
+
+and
+
+> (l.427-429: "the change most likely to be made by accident")
+
+## `docs/design/reduction-side.md`, *What the fingerprint sees, and what it cannot*, its line citations
+
+Read 2026-11-21 against `src/crosslink/wire.py` at the same change, which
+adds an import above the function. One passage moved, and only its line
+citation changed. It read:
+
+> `snapshot_digest` (`wire.py` l.144-167)
+
+## `AGENTS.md`, *Repo conventions*, the coding standard bullet
+
+Read 2026-11-21 against `.github/workflows/checks.yml` at the same change,
+whose `power of ten` job reads `src` at class A and the vendored copies at
+class B. One sentence moved. The bullet opened:
+
+> - **`src` is held to a coding standard, read by `scripts/check_power_of_ten.py`** in the `power of ten` job: cyclomatic ceiling 15, the type checker's default, no recursion, no `while True`, no `global`, no blind `except`.
+
+## `docs/design/write-path.md`, *The producer as a process*, the diagram's answer
+
+Read 2026-11-21 against `post` in `src/crosslink/produce.py` at the same
+change, which refuses an answer longer than `MAX_ANSWER_BYTES` and ends the
+run `unreachable`. One message moved. The diagram's last message read:
+
+> C-->>P: status + answer - line `answered` (or `unreachable` if nothing answered in HTTP)
+
 ## `SECURITY.md`, *The surface, stated honestly*, the `crosslink.serve` bullet
 
 Read 2026-11-20 against `src/crosslink/serve.py` at the change that keeps

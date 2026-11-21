@@ -48,6 +48,12 @@ BASELINE = "baseline"
 NO_DRIFT = "no-drift"
 DRIFT = "drift"
 
+# What the names above hold by construction, checked when the module loads.
+# An explicit `raise`, never `assert`, which `python -O` strips. Each check
+# has a planted wrong fact in `tests/test_load_time_checks.py`.
+if len({BASELINE, NO_DRIFT, DRIFT, IDENTITY_MISMATCH}) != 4:
+    raise RuntimeError("service: two verdict kinds or the refusal are one string, so an answer cannot say which")
+
 
 @dataclass(frozen=True)
 class DriftVerdict:
@@ -125,3 +131,10 @@ def observe(previous: Envelope | None, new: Envelope) -> DriftVerdict | WireRefu
         previous_emitted_at=previous.emitted_at,
         new_emitted_at=new.emitted_at,
     )
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("service: a name in __all__ is not defined in the module")

@@ -179,10 +179,13 @@ UNKNOWN_SENDER = "unknown-sender"
 LENGTH_REQUIRED = "length-required"
 BODY_TOO_LARGE = "body-too-large"
 
-# One mebibyte. A fingerprint envelope carries layer names, model names and
-# digests, never data, so the ceiling sits far above any this package builds,
-# and a request declaring more is refused before any of it is read.
-MAX_BODY_BYTES = 1 << 20
+# The largest frame a receiver must accept: a header and a body of the frame's
+# stated maximum, `ration.frame.MAX_BODY_LENGTH`. The request body is one whole
+# frame, so the ceiling is the frame's, and a request declaring more is refused
+# `body-too-large` before a byte of it is read. A fingerprint envelope carries
+# layer names, model names and digests, never data, so this sits far above any
+# envelope this package builds.
+MAX_BODY_BYTES = framing.HEADER_SIZE + framing.MAX_BODY_LENGTH
 
 # Loopback unless told otherwise: a deployment passes the address to bind,
 # and a caller that passes none gets this.
@@ -197,6 +200,18 @@ _DIGITS = re.compile(r"[0-9]{1,18}")
 # The ledger file is the baseline's file name with this appended, in the
 # baseline's directory, so one directory holds the comparer's whole state.
 LEDGER_SUFFIX = ".ledger"
+
+# What the names above hold by construction, checked when the module loads.
+# An explicit `raise`, never `assert`, which `python -O` strips. Each check
+# has a planted wrong fact in `tests/test_load_time_checks.py`.
+if len({LAYER_FRAME, LAYER_ENVELOPE, LAYER_COMPARER}) != 3:
+    raise RuntimeError("serve: two layers are one string, so a line cannot say which layer refused")
+if len({UNKNOWN_SENDER, LENGTH_REQUIRED, BODY_TOO_LARGE} - framing.CONTROLS) != 3:
+    raise RuntimeError("serve: the comparer's own controls are not three strings apart from the frame's")
+if MAX_BODY_BYTES < framing.HEADER_SIZE + framing.MAX_BODY_LENGTH:
+    raise RuntimeError("serve: the ceiling refuses a frame whose body is within the frame's maximum")
+if _DIGITS.fullmatch(str(MAX_BODY_BYTES)) is None:
+    raise RuntimeError("serve: a request declaring the ceiling's own length would be refused as unreadable")
 
 # The ledger file's first field. A file naming any other format does not
 # decode, so a later layout is refused by this one rather than misread.
@@ -637,6 +652,13 @@ def main(
     args = parser.parse_args(argv)
     run(_parse_bind(args.bind, parser), list(args.sender), args.baseline)
     return 0
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("serve: a name in __all__ is not defined in the module")
 
 
 if __name__ == "__main__":

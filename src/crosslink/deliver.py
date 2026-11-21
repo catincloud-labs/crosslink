@@ -437,80 +437,8 @@ def deliver_pull_request(
             "clone", "-c", "core.autocrlf=false", "--",
             str(repository), str(clone), cwd=workspace,
         )
-        if base is not None:
-            if base.startswith("-"):
-                raise ValueError(f"base name {base!r} reads as an option; refused")
-            if _run_git("check-ref-format", "--branch", base, cwd=clone).returncode != 0:
-                raise ValueError(
-                    f"base name {base!r} is not a well-formed git branch name; refused"
-                )
-            if _run_git(
-                "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{base}",
-                cwd=clone,
-            ).returncode != 0:
-                raise ValueError(
-                    f"base {base!r} does not exist on the target"
-                )
-            start_point: tuple[str, ...] = (f"origin/{base}",)
-        else:
-            try:
-                base = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=clone)
-            except DeliveryError as error:
-                # An unresolvable HEAD and an empty repository fail the same
-                # rev-parse, but they are different facts about the target and
-                # the remote-tracking refs discriminate: a mirror whose default
-                # was renamed without updating HEAD still clones its branches.
-                branches = sorted(
-                    line.strip().removeprefix("origin/")
-                    for line in _run_git(
-                        "branch", "--remotes", cwd=clone
-                    ).stdout.splitlines()
-                    if line.strip() and "->" not in line
-                )
-                if branches:
-                    raise DeliveryError(
-                        "the target's HEAD does not resolve to a branch, but "
-                        "the target has commits (remote branches: "
-                        + ", ".join(branches)
-                        + "); pass base= to name the base explicitly"
-                    ) from error
-                raise DeliveryError(
-                    "the target repository has no commits: a proposal needs a "
-                    "base to be proposed against"
-                ) from error
-            start_point = ()
-        # Well-formedness before existence: a malformed name (`a..b`, an
-        # embedded space) is caller input this module refuses, not a git
-        # environment failure, so it must surface as ValueError rather than
-        # fall through to `switch` and re-raise as DeliveryError.
-        if _run_git("check-ref-format", "--branch", name, cwd=clone).returncode != 0:
-            raise ValueError(
-                f"branch name {name!r} is not a well-formed git branch name; refused"
-            )
-        if _run_git(
-            "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{name}",
-            cwd=clone,
-        ).returncode == 0:
-            if branch is not None:
-                raise ValueError(
-                    f"branch {name!r} already exists on the target: a delivery "
-                    "never overwrites"
-                )
-            # A derived name is lossy - punctuation, case, and anything past
-            # sixty characters do not survive _branch_from - so an existing
-            # branch is not proof of a re-delivery, and diagnosing it as one
-            # would tell the author of a distinct change that it is a
-            # duplicate. The refusal stands either way; the diagnosis must
-            # name both readings.
-            raise ValueError(
-                f"the derived branch {name!r} already exists on the target: a "
-                "delivery never overwrites. That branch may be a prior "
-                "delivery of this proposal, or of a different proposal whose "
-                "title merely derives to the same name - punctuation, case, "
-                "and anything past sixty characters do not survive "
-                "derivation. If this is a distinct change, pass branch= to "
-                "name it apart."
-            )
+        base, start_point = _resolved_base(base, clone)
+        _refuse_unusable_branch(name, branch, clone)
         _git("switch", "-c", name, *start_point, cwd=clone)
         _apply_edits(patch, clone)
         # -f and the patch's own paths, not `-A -- .`: `git add -A` would honour
@@ -533,6 +461,95 @@ def deliver_pull_request(
         branch=name, base=base, commit=commit,
         pull_request=open_pull_request(spec),
     )
+
+
+def _resolved_base(base: str | None, clone: Path) -> tuple[str, tuple[str, ...]]:
+    """The base the proposal is made against, and the start point its branch is cut from.
+
+    A named base must be a well-formed branch the target holds. With none
+    named, the target's own ``HEAD`` decides, and the branch is cut from it.
+    """
+
+    if base is not None:
+        if base.startswith("-"):
+            raise ValueError(f"base name {base!r} reads as an option; refused")
+        if _run_git("check-ref-format", "--branch", base, cwd=clone).returncode != 0:
+            raise ValueError(
+                f"base name {base!r} is not a well-formed git branch name; refused"
+            )
+        if _run_git(
+            "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{base}",
+            cwd=clone,
+        ).returncode != 0:
+            raise ValueError(
+                f"base {base!r} does not exist on the target"
+            )
+        start_point: tuple[str, ...] = (f"origin/{base}",)
+    else:
+        try:
+            base = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=clone)
+        except DeliveryError as error:
+            # An unresolvable HEAD and an empty repository fail the same
+            # rev-parse, but they are different facts about the target and
+            # the remote-tracking refs discriminate: a mirror whose default
+            # was renamed without updating HEAD still clones its branches.
+            branches = sorted(
+                line.strip().removeprefix("origin/")
+                for line in _run_git(
+                    "branch", "--remotes", cwd=clone
+                ).stdout.splitlines()
+                if line.strip() and "->" not in line
+            )
+            if branches:
+                raise DeliveryError(
+                    "the target's HEAD does not resolve to a branch, but "
+                    "the target has commits (remote branches: "
+                    + ", ".join(branches)
+                    + "); pass base= to name the base explicitly"
+                ) from error
+            raise DeliveryError(
+                "the target repository has no commits: a proposal needs a "
+                "base to be proposed against"
+            ) from error
+        start_point = ()
+    return base, start_point
+
+
+def _refuse_unusable_branch(name: str, branch: str | None, clone: Path) -> None:
+    """Refuse a branch name that is not well formed, or that the target already holds."""
+
+    # Well-formedness before existence: a malformed name (`a..b`, an
+    # embedded space) is caller input this module refuses, not a git
+    # environment failure, so it must surface as ValueError rather than
+    # fall through to `switch` and re-raise as DeliveryError.
+    if _run_git("check-ref-format", "--branch", name, cwd=clone).returncode != 0:
+        raise ValueError(
+            f"branch name {name!r} is not a well-formed git branch name; refused"
+        )
+    if _run_git(
+        "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{name}",
+        cwd=clone,
+    ).returncode == 0:
+        if branch is not None:
+            raise ValueError(
+                f"branch {name!r} already exists on the target: a delivery "
+                "never overwrites"
+            )
+        # A derived name is lossy - punctuation, case, and anything past
+        # sixty characters do not survive _branch_from - so an existing
+        # branch is not proof of a re-delivery, and diagnosing it as one
+        # would tell the author of a distinct change that it is a
+        # duplicate. The refusal stands either way; the diagnosis must
+        # name both readings.
+        raise ValueError(
+            f"the derived branch {name!r} already exists on the target: a "
+            "delivery never overwrites. That branch may be a prior "
+            "delivery of this proposal, or of a different proposal whose "
+            "title merely derives to the same name - punctuation, case, "
+            "and anything past sixty characters do not survive "
+            "derivation. If this is a distinct change, pass branch= to "
+            "name it apart."
+        )
 
 
 def _proposal_document(patch: PatchObject) -> str:
@@ -581,3 +598,10 @@ def emit_files(patch: PatchObject, directory: str | Path) -> tuple[Path, ...]:
         destination.write_text(text, encoding="utf-8", newline="")
         written.append(destination)
     return tuple(written)
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("deliver: a name in __all__ is not defined in the module")

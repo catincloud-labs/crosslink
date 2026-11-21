@@ -378,8 +378,8 @@ _SYSTEM = (
 )
 
 
-def _entries(pairs, noun: str) -> dict:
-    entries: dict = {}
+def _entries(pairs: Any, noun: str) -> dict[str, Any]:
+    entries: dict[str, Any] = {}
     for pair in pairs:
         key, value = pair["key"], pair["value"]
         if key in entries and entries[key] != value:
@@ -523,3 +523,10 @@ def claude_proposer(
         return _edit_from_json(json.loads(text))
 
     return propose
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("generate: a name in __all__ is not defined in the module")

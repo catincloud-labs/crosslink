@@ -57,7 +57,9 @@ contradict what the delta recorded - are all errors, never guesses.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass, fields as dataclass_fields, is_dataclass, replace
+from typing import Any
 
 from .model import (
     DeclaredJoin,
@@ -81,6 +83,12 @@ __all__ = [
 ]
 
 
+# The two callables a collection is diffed with: the identity that says two
+# entries are the same declaration, and the key that puts a collection in its
+# one canonical order. Each is a tuple of the entry's own fields.
+type _Identity[T] = Callable[[T], Hashable]
+type _SortKey[T] = Callable[[T], tuple[Any, ...]]
+
 # Identity: what makes a declaration the same declaration in both snapshots.
 # Source identity and its canonical order are shared symbols
 # (model.source_identity / model.source_sort_key): the parser converges and
@@ -92,25 +100,27 @@ __all__ = [
 # write), not a statement about identity in the neutral model. A tier-3 write
 # path re-checks producer constraints before writing; the delta layer does
 # not import them.
-def _model_key(m: ProjectModel) -> tuple:
+def _model_key(m: ProjectModel) -> tuple[str]:
     return (m.name,)
 
 
-def _semantic_key(s: SemanticModel) -> tuple:
+def _semantic_key(s: SemanticModel) -> tuple[str]:
     return (s.name,)
 
 
-def _metric_key(m: Metric) -> tuple:
+def _metric_key(m: Metric) -> tuple[str]:
     return (m.name,)
 
 
 # Sort keys: the canonical across-collection order. The source order lives in
 # model.source_sort_key, beside the identity it orders.
-def _key_sort_key(k: DeclaredKey) -> tuple:
+def _key_sort_key(k: DeclaredKey) -> tuple[str, tuple[str, ...], str]:
     return (k.model, k.columns, k.source)
 
 
-def _join_sort_key(j: DeclaredJoin) -> tuple:
+def _join_sort_key(
+    j: DeclaredJoin,
+) -> tuple[str, tuple[str, ...], str, tuple[str, ...], str]:
     return (j.from_model, j.from_columns, j.to_model, j.to_columns, j.source)
 
 
@@ -279,10 +289,10 @@ def _changed_fields(before: object, after: object) -> tuple[str, ...]:
     )
 
 
-def _index(items: tuple, key, noun: str) -> dict:
+def _index[T](items: tuple[T, ...], key: _Identity[T], noun: str) -> dict[Hashable, T]:
     # An identical restatement collapses (one statement, stated twice); the
     # same identity with a different value is a self-contradiction and refuses.
-    indexed: dict = {}
+    indexed: dict[Hashable, T] = {}
     for item in items:
         k = key(item)
         if k in indexed and indexed[k] != item:
@@ -293,7 +303,13 @@ def _index(items: tuple, key, noun: str) -> dict:
     return indexed
 
 
-def _keyed_diff(left: tuple, right: tuple, key, sort_key, noun: str) -> KeyedEdits:
+def _keyed_diff[T](
+    left: tuple[T, ...],
+    right: tuple[T, ...],
+    key: _Identity[T],
+    sort_key: _SortKey[T],
+    noun: str,
+) -> KeyedEdits[T]:
     # The Fingerprint.changed_layers shape: union of identities, compare via
     # .get, emit sorted - which is also what makes two equal diffs compare ==.
     before = _index(left, key, noun)
@@ -311,7 +327,7 @@ def _keyed_diff(left: tuple, right: tuple, key, sort_key, noun: str) -> KeyedEdi
     return KeyedEdits(tuple(added), tuple(removed), tuple(changed))
 
 
-def _set_diff(left: tuple, right: tuple, sort_key) -> SetEdits:
+def _set_diff[T](left: tuple[T, ...], right: tuple[T, ...], sort_key: _SortKey[T]) -> SetEdits[T]:
     # A set noun's members ARE their value, so a duplicate can only ever be
     # the same statement twice - it collapses, and there is no conflicting
     # case to refuse.
@@ -323,7 +339,13 @@ def _set_diff(left: tuple, right: tuple, sort_key) -> SetEdits:
     )
 
 
-def _apply_keyed(edits: KeyedEdits, base: tuple, key, sort_key, noun: str) -> tuple:
+def _apply_keyed[T](
+    edits: KeyedEdits[T],
+    base: tuple[T, ...],
+    key: _Identity[T],
+    sort_key: _SortKey[T],
+    noun: str,
+) -> tuple[T, ...]:
     current = _index(base, key, noun)
     removed_keys = {key(i) for i in edits.removed}
     changed_keys = {key(c.before) for c in edits.changed}
@@ -358,7 +380,9 @@ def _apply_keyed(edits: KeyedEdits, base: tuple, key, sort_key, noun: str) -> tu
     return tuple(sorted(current.values(), key=sort_key))
 
 
-def _apply_set(edits: SetEdits, base: tuple, sort_key, noun: str) -> tuple:
+def _apply_set[T](
+    edits: SetEdits[T], base: tuple[T, ...], sort_key: _SortKey[T], noun: str
+) -> tuple[T, ...]:
     both = set(edits.removed) & set(edits.added)
     if both:
         raise ValueError(
@@ -377,7 +401,9 @@ def _apply_set(edits: SetEdits, base: tuple, sort_key, noun: str) -> tuple:
     return tuple(sorted(current, key=sort_key))
 
 
-def _canonical_keyed(items: tuple, key, sort_key, noun: str) -> tuple:
+def _canonical_keyed[T](
+    items: tuple[T, ...], key: _Identity[T], sort_key: _SortKey[T], noun: str
+) -> tuple[T, ...]:
     return tuple(sorted(_index(items, key, noun).values(), key=sort_key))
 
 
@@ -447,3 +473,10 @@ def diff(left: ProjectDeclarations, right: ProjectDeclarations) -> Delta:
         ),
         metrics=_keyed_diff(left.metrics, right.metrics, _metric_key, _metric_key, "metric"),
     )
+
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("delta: a name in __all__ is not defined in the module")

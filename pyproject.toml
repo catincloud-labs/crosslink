@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 # installs a top-level `crosslink` package of its own, so the two cannot
 # share an environment (README, "Installing").
 name = "catincloud-crosslink"
-version = "0.1.4"
+version = "0.1.5"
 description = "A project format reduced from an orchestrated asset graph, and the write path back to it"
 readme = "README.md"
 license = "Apache-2.0"
@@ -105,7 +105,7 @@ generate = ["anthropic>=1.0"]
 # runs them against that release of `ration`, and moves the two together.
 # The version is the one uploaded from that repository's tag of the same
 # number.
-service = ["catincloud-ration==0.2.1"]
+service = ["catincloud-ration==0.3.0"]
 
 # Each one a URL of this repository, which PyPI checks against the trusted
 # publisher and shows under its verified details.

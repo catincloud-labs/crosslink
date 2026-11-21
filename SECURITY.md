@@ -54,7 +54,10 @@ assert that it is safe.
   and writes it nowhere. Unless it is run with `--dry-run`, each run connects
   to that store, publishes one pointer to it as the writer `--publisher`
   names, and, unless that publication is superseded, sends one `POST` to the
-  address given as `--post`, which must be an http(s) URL.
+  address given as `--post`, which must be an http(s) URL. It reads the
+  answer up to `MAX_ANSWER_BYTES`, in `src/crosslink/produce.py`, on a
+  success and on a refusal alike, and refuses a longer one with the rest
+  left unread.
 - **`crosslink.deliver` runs `git` as a subprocess,** under whatever identity
   the environment already carries: it clones the repository you name into an
   ephemeral directory, commits there, and pushes one new branch to it, refusing

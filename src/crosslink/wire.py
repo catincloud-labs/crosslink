@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, fields as dataclass_fields
 from datetime import datetime, timezone
+from typing import Any
 
 from .delta import canonical
 from .model import Fingerprint, ProjectDeclarations, definition_hash
@@ -236,6 +237,19 @@ def _is_int(value: object) -> bool:
 _ENVELOPE_FIELDS = tuple(f.name for f in dataclass_fields(Envelope))
 _PAYLOAD_FIELDS = tuple(f.name for f in dataclass_fields(FingerprintPayload))
 
+# What the names above hold by construction, checked when the module loads.
+# An explicit `raise`, never `assert`, which `python -O` strips. Each check
+# has a planted wrong fact in `tests/test_load_time_checks.py`.
+if len({UNKNOWN_SCHEMA_VERSION, UNKNOWN_PAYLOAD_KIND, MALFORMED_ENVELOPE, DIGEST_MISMATCH}) != 4:
+    raise RuntimeError("wire: two decode controls are one string, so a refusal cannot say which check failed")
+if set(_ENVELOPE_FIELDS) != {
+    "schema_version", "payload_kind", "project_format", "project_name",
+    "emitted_at", "producer_version", "payload", "payload_digest",
+}:
+    raise RuntimeError("wire: the envelope's fields are not the names decode_envelope reads")
+if set(_PAYLOAD_FIELDS) != {"layers", "models", "snapshot_digest"}:
+    raise RuntimeError("wire: the payload's fields are not the names decode_envelope reads")
+
 
 def decode_envelope(data: bytes) -> Envelope | WireRefusal:
     """Bytes to envelope, or a typed refusal - never an exception.
@@ -248,12 +262,52 @@ def decode_envelope(data: bytes) -> Envelope | WireRefusal:
     how one schema version quietly becomes two dialects.
     """
 
+    obj = _parsed(data)
+    if isinstance(obj, WireRefusal):
+        return obj
+    refused = _header_refusal(obj) or _shape_refusal(obj)
+    if refused is not None:
+        return refused
+    payload = _decoded_payload(obj["payload"])
+    if isinstance(payload, WireRefusal):
+        return payload
+    if _payload_digest(payload) != obj["payload_digest"]:
+        return WireRefusal(
+            DIGEST_MISMATCH,
+            "payload_digest does not match the payload it arrived with",
+        )
+
+    return Envelope(
+        schema_version=obj["schema_version"],
+        payload_kind=obj["payload_kind"],
+        project_format=obj["project_format"],
+        project_name=obj["project_name"],
+        emitted_at=obj["emitted_at"],
+        producer_version=obj["producer_version"],
+        payload=payload,
+        payload_digest=obj["payload_digest"],
+    )
+
+
+# The stages of `decode_envelope`, each run only once the one before it has
+# passed, in the order its docstring states: parse, version, kind, shape,
+# payload. The digest is checked last, by `decode_envelope` itself.
+
+
+def _parsed(data: bytes) -> dict[str, Any] | WireRefusal:
+    """The top-level JSON object, or the refusal of bytes that are not one."""
+
     try:
         obj = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         return WireRefusal(MALFORMED_ENVELOPE, f"not UTF-8 JSON: {error}")
     if not isinstance(obj, dict):
         return WireRefusal(MALFORMED_ENVELOPE, "the top level is not a JSON object")
+    return obj
+
+
+def _header_refusal(obj: dict[str, Any]) -> WireRefusal | None:
+    """Version before kind, and both before shape."""
 
     if "schema_version" not in obj or not _is_int(obj["schema_version"]):
         return WireRefusal(
@@ -276,6 +330,11 @@ def decode_envelope(data: bytes) -> Envelope | WireRefusal:
             f"payload_kind {obj['payload_kind']!r} is not a kind this "
             f"version carries",
         )
+    return None
+
+
+def _shape_refusal(obj: dict[str, Any]) -> WireRefusal | None:
+    """Exactly the envelope's fields, and a string in each string field."""
 
     if sorted(obj) != sorted(_ENVELOPE_FIELDS):
         return WireRefusal(
@@ -287,8 +346,12 @@ def decode_envelope(data: bytes) -> Envelope | WireRefusal:
                  "producer_version", "payload_digest"):
         if not _is_str(obj[name]):
             return WireRefusal(MALFORMED_ENVELOPE, f"{name} is not a string")
+    return None
 
-    raw = obj["payload"]
+
+def _decoded_payload(raw: object) -> FingerprintPayload | WireRefusal:
+    """The payload, or the refusal of one that is not exactly its shape."""
+
     if not isinstance(raw, dict) or sorted(raw) != sorted(_PAYLOAD_FIELDS):
         return WireRefusal(
             MALFORMED_ENVELOPE,
@@ -309,25 +372,15 @@ def decode_envelope(data: bytes) -> Envelope | WireRefusal:
         return WireRefusal(
             MALFORMED_ENVELOPE, "payload.snapshot_digest is not a string"
         )
-
-    payload = FingerprintPayload(
+    return FingerprintPayload(
         layers=dict(layers),
         models=tuple(models),
         snapshot_digest=raw["snapshot_digest"],
     )
-    if _payload_digest(payload) != obj["payload_digest"]:
-        return WireRefusal(
-            DIGEST_MISMATCH,
-            "payload_digest does not match the payload it arrived with",
-        )
 
-    return Envelope(
-        schema_version=obj["schema_version"],
-        payload_kind=obj["payload_kind"],
-        project_format=obj["project_format"],
-        project_name=obj["project_name"],
-        emitted_at=obj["emitted_at"],
-        producer_version=obj["producer_version"],
-        payload=payload,
-        payload_digest=obj["payload_digest"],
-    )
+
+# What `__all__` holds by construction, checked when the module loads: every
+# name it exports is defined here. An explicit `raise`, never `assert`, which
+# `python -O` strips; its plant is in `tests/test_load_time_checks.py`.
+if [name for name in __all__ if name not in globals()]:
+    raise RuntimeError("wire: a name in __all__ is not defined in the module")

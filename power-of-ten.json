@@ -1,0 +1,28 @@
+{
+  "src": {
+    "rule 3": {
+      "reads": [
+        "a framed fingerprint envelope another process posts to the comparer, read by crosslink.serve's request handler",
+        "the comparer's answer to the producer's post, a success or a refusal, read by crosslink.produce.post"
+      ],
+      "readers": [
+        {
+          "check": "tests/test_serve.py::TestTheReceiveIsBounded",
+          "violator": "tests/test_serve.py::ReadsBeforeBounding"
+        },
+        {
+          "check": "tests/test_produce.py::TestTheAnswerIsBounded",
+          "violator": "tests/test_produce.py::reads_the_whole_answer"
+        }
+      ]
+    },
+    "rule 5": {
+      "readers": [
+        {
+          "check": "tests/test_load_time_checks.py",
+          "violator": "tests/test_load_time_checks.py::PLANTS"
+        }
+      ]
+    }
+  }
+}
