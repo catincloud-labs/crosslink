@@ -11,6 +11,34 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `SECURITY.md`, *The surface, stated honestly*, the `crosslink.serve` bullet
+
+Read 2026-11-20 against `src/crosslink/serve.py` at the change that keeps
+the comparer's sequence ledgers in a file beside the baseline, so that a
+restart no longer forgets them. Two sentences moved. The bullet's last two
+sentences read:
+
+> A restart forgets the sequence ledgers, so a replay against a restarted comparer is not caught; the docstring states that cost. The one file it keeps is the baseline, at the path it is given, written through a temporary file beside it.
+
+## `docs/design/write-path.md`, *The comparer as a process*
+
+Read 2026-11-20 against `src/crosslink/serve.py` at the same change. The
+section's last paragraph ended:
+
+> The ledgers are memory only - a restart forgets them, the cost `ration.frame`'s docstring states and `serve.py`'s own docstring prices - and that forgetting is also the by-hand clear for the epoch hazard: a store that loses its data restarts the producer's epoch below what the ledger accepted. One refusal moves state and is stated as such: a frame of a registered kind the comparer does not serve has passed every frame check, so its sequence is consumed.
+
+The last sentence was already false at `main` before that change: a frame
+that passes the frame checks consumes its sequence whatever the envelope and
+the comparer then decide, so an envelope refusal and an `identity-mismatch`
+moved the ledger too.
+
+## `docs/design/write-path.md`, *The producer as a process*
+
+Read 2026-11-20 against `src/crosslink/serve.py` at the same change. The
+paragraph on the epoch read, in its third sentence:
+
+> That holds while the store keeps its data: a store that loses it is the epoch hazard named above, and its clear is the comparer's restart.
+
 ## `docs/design/reduction-side.md`, *The dbt format (`dbt.py`)*, the walk paragraph's line range
 
 Read 2026-11-15 against `src/crosslink/dbt.py` at the change that made

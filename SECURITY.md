@@ -41,10 +41,13 @@ assert that it is safe.
   refused; both are in `src/crosslink/serve.py`. It has **no TLS and no
   authentication**: the frame gives integrity, ordering and versioning, and
   securing the network it crosses is the deployment's. The sender segment of
-  the path is addressing, never a credential. A restart forgets the sequence
-  ledgers, so a replay against a restarted comparer is not caught; the
-  docstring states that cost. The one file it keeps is the baseline, at the
-  path it is given, written through a temporary file beside it.
+  the path is addressing, never a credential. The sequence ledgers survive a
+  restart, so a replay against a restarted comparer is refused as it would be
+  against a running one; removing the ledger file while the process is
+  stopped is what clears them, and the docstring says when that is the
+  remedy. It keeps two files: the baseline, at the path it is given, and the
+  sequence ledgers beside it, at that path with `.ledger` appended, each
+  written through a temporary file beside it.
 - **`crosslink.produce` imports the modules you name** with `--load` and
   `--carve`, so whoever controls its command line controls an import. It
   reads the store's DSN from the `RATION_DSN` environment variable per run
