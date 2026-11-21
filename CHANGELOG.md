@@ -20,13 +20,23 @@ Six passages moved, and in each only a line citation changed. They read:
 
 > so it is stripped first (`_JINJA_COMMENT`, l.88, applied at l.411 and l.428).
 
+and
+
 > over the *kept* models' files only (l.145-159, `_readers_by_table` l.423-431),
+
+and
 
 > `_normalized_model_paths` (l.445-518) is the one reading of `model-paths`,
 
+and
+
 > `_route` (l.321-376) sorts files under the model paths into the parsers' channels
 
+and
+
 > `_models_from_sql` (l.378-421) makes one model per SQL file
+
+and
 
 > under the model path (`_layer_of`, l.434-442) - and on a **duplicate stem keeps the first in path order with a note** (l.405-410),
 
@@ -42,9 +52,15 @@ now states it and leaves carrying it to `_converge`. They read:
 
 > - `parse_source_declarations` (l.195-291): keyed by the reading model. Two models declaring the same table **converge on one source with two readers** (l.207-211, l.263-276) -
 
+and
+
 > A file that parsed but declared no table is the failure worth naming (l.278-285):
 
+and
+
 > because the triple holds `str | None` and sorting it is a `TypeError` on valid input (l.287-291).
+
+and
 
 > - `parse_semantics` (l.294-367): semantic models and metrics, each carrying a `definition_sha` over a sorted re-dump of its entry (l.333, l.356). The duplicate rule is carried here (l.299-304):
 
@@ -56,6 +72,8 @@ project, and a comment on its `changed_layers` call. Two passages moved,
 and in each only a line citation changed. They read:
 
 > | arm (tier 2, `FingerprintedProjectContract`, l.395-437) |
+
+and
 
 > (l.427-429: "the change most likely to be made by accident")
 
