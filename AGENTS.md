@@ -239,8 +239,16 @@ everywhere or nowhere. Nothing checks it.
     at a module's top level, never an `assert`. The day `src` adds a read
     from another process, the declaration is false, and the same change
     lists the read and names its reader.
-- Enable the hook per clone - it does not install itself:
-  `git config core.hooksPath .githooks`. `scripts/check_hook_mode.py`, in the
+- **Enable the hook per clone - it does not install itself - unless the
+  clone already sets a hooks directory.** If `git config --get core.hooksPath`
+  prints a value (it reads every scope, so a global setting counts), keep it:
+  that hooks directory is expected to run `.githooks/commit-msg` itself, and
+  if its `commit-msg` does not, add that call there. Otherwise run
+  `git config core.hooksPath .githooks`. That command sets this clone's value
+  with no warning, replacing a local one and overriding a global one, so on a
+  clone that had a hooks directory it stops every other hook that directory
+  ran here. The rule follows `catincloud-labs/dagster-dex#172`, and the header
+  of `.githooks/commit-msg` points here. `scripts/check_hook_mode.py`, in the
   `closing keywords` job, refuses a tracked `.githooks/commit-msg` whose
   index mode is not `100755`, the mode git on Linux and macOS needs to run
   it.
