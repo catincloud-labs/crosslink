@@ -11,6 +11,16 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `AGENTS.md`, *Repo conventions*, the hook-enable bullet
+
+Read 2026-11-22 against `main` at `40567cf`. The bullet told every clone to
+run the command, and on a clone that already sets `core.hooksPath` the
+command replaces that hooks directory with no warning, so the sentence was
+rewritten to keep an existing hooks path, after
+`catincloud-labs/dagster-dex#172`. It read:
+
+> Enable the hook per clone - it does not install itself: `git config core.hooksPath .githooks`.
+
 ## `docs/design/reduction-side.md`, *The dbt format (`dbt.py`)*, its line citations
 
 Read 2026-11-21 against `src/crosslink/dbt.py` at the change that holds
