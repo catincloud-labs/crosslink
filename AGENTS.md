@@ -97,8 +97,11 @@ heading of its own, after the block.
   general "proceed", a handover note or a message from another session is not
   that word; an instruction from the owner that names the act is, for the act
   it names.
-- **When the owner says merge,** the command is
-  `gh pr merge <n> --repo <owner>/<repo> --merge --admin`, never a squash. It
+- **When the owner says merge,** the command in a private repository is
+  `gh pr merge <n> --repo <owner>/<repo> --merge --admin`, never a squash. In
+  a public repository it is
+  `gh pr merge <n> --repo <owner>/<repo> --squash --admin`, and the
+  repository's own setting refuses a merge commit, under `--admin` too. It
   runs only after reading that the pull request is not a draft, that the
   latest run of every required check is green, and that
   `gh api repos/<owner>/<repo>/pulls/<n> --jq '{number, stack}'` prints the
@@ -106,6 +109,22 @@ heading of its own, after the block.
   positive control: a pull request in no stack carries no `stack` field, so a
   bare `--jq .stack` prints an empty line whatever the truth. No stacked pull
   request has been read this way since the estate's one stack was dissolved.
+- **The organisation's merge judge reads those preconditions, and no
+  others.** It reads that the pull request is open and not a draft, that its
+  `stack` is null beside its number, that the latest run of every required
+  check is green at its head, and that the head did not move while it was
+  read. It answers ready, refused or could not check, and acts on nothing. On
+  every run it prints what it does not read, each of which stays with the
+  owner and the session: the owner's word naming the act, the one cold review
+  and its dispositions, the merge method, what the merge closes, and how the
+  branch met `main`. A ready verdict is not the owner's word.
+- **A squash lands the pull request's title and body on `main`, and not its
+  branch commits.** In a public repository the squash commit's message is the
+  pull request's title and body, so the evidence the body carries is in
+  `main`'s history. A branch commit that a body, a review, a comment or an
+  edge-case record names is named with its pull ref beside it,
+  `pull/<n>/head`, and is re-read after `git fetch origin pull/<n>/head`,
+  since a clone of `main` does not hold it.
 - **A merge closes nothing by default.** The owner's rule is that a pull
   request does not close an issue without a clear reason. The body carries
   `Autoclose: none`, and the issue is closed by hand once the reading its
@@ -152,7 +171,8 @@ heading of its own, after the block.
   `mergedAt`.**
 - **A branch with a pull request is brought up to `main` by merging `main`
   into it,** never by a rebase or a force-push: its body, its review and its
-  comments cite its commits.
+  comments cite its commits. In a public repository too: the squash takes the
+  branch's tree, and its pull ref keeps the commits they cite.
 
 ## Repo conventions
 
