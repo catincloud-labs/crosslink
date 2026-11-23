@@ -2,35 +2,28 @@
 # SPDX-License-Identifier: Apache-2.0
 """The project seam, tiered - a proposal, expressed as something that runs.
 
-A project format is read through channels with different consumers and
-different requirements. A single-method seam cannot carry that whichever method
-it names: pin it to the read view and the declared keys never arrive; pin it to
-the declarations and the per-layer fingerprint has nowhere to come from.
-
-So the seam is tiered, the way a storage protocol is tiered:
+The seam is tiered, the way a storage protocol is tiered, and each tier is a
+superset of the one above:
 
     ProjectSource        declarations()                    - what the project declares
-    FingerprintedProject   + fingerprint()                 - what it looks like right now
-    EditableProject        + propose_edits()               - what may be written back
+    FingerprintedProject   + fingerprint()                 - a hash per layer, to compare
+    EditableProject        + propose_edits()               - edits offered for review
 
-Each tier is a superset of the one above. A format implements the tiers it can
-serve and simply does not implement the rest.
+A format implements only those tiers it is able to serve, and
+:func:`tier_of` reads which by ``isinstance``, never from a declared flag.
+ADR-0001 is the record for both: why one method cannot carry a project's
+channels, and why a tier is checked rather than claimed. This module is the
+seam that record decides, and does not argue it again.
 
-**Why tiers rather than capability flags.** A flag is a claim the engine has to
-interpret, trust, and branch on, and nothing stops a format from setting it
-wrong. A tier is checkable: ``isinstance(project, EditableProject)`` is either
-true or it is not, and a format that cannot receive edits cannot accidentally
-claim it can. The declaration and the enforcement become the same object.
+One reason the record does not give is this module's to keep. Before the
+tiers, a generated project was safe from having edits written into it only
+where some naming convention happened not to match - safe by coincidence
+rather than by contract. Declining a tier makes that safety structural.
 
-That matters most for the write path. A generated project is safe from having
-edits written into it today only where some naming convention happens not to
-match - safe by coincidence rather than by contract. Declining a tier makes it
-structural.
-
-**Non-goal: this does not describe how a project is constructed.** Locating and
-building one is a separate contract, and deliberately so: the formats disagree
-about what they are keyed by (a directory, a graph in memory, a service), and
-that disagreement is not resolvable by picking whichever the first format used.
+**Non-goal: this does not describe how a project is constructed.** Finding and
+constructing a project is its own contract, on purpose: formats are keyed by
+different things (a directory, a graph in memory, a service), and choosing
+whichever key the first format happened to use would not settle that.
 See :mod:`crosslink.context` for the shape that question takes.
 """
 
@@ -107,12 +100,8 @@ class EditableProject(FingerprintedProject, Protocol):
     """Tier 3: the write path.
 
     Implemented only by formats whose source of truth can actually receive an
-    edit. A project reduced from a running graph cannot: its source of truth is
-    the code that produced the graph, and writing to the reduction would edit an
-    artifact that is regenerated from something else.
-
-    Declining this tier is the honest answer for such a format, and the reason
-    the tiers exist rather than a ``writeback`` flag.
+    edit. ADR-0001 says why a reduction of a live graph cannot, and why that
+    is a missing tier rather than a ``writeback`` flag set to false.
     """
 
     def propose_edits(self, edits: object) -> object:

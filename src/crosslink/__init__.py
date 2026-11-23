@@ -1,6 +1,6 @@
 # Copyright 2026 David Anaya
 # SPDX-License-Identifier: Apache-2.0
-"""A project format reduced from an orchestrated asset graph, and the seam it uses.
+"""An orchestrated asset graph, reduced to a project format, and the seam it uses.
 
 This package does not import an orchestrator anywhere - not lazily, not at all.
 ``DagsterProject.from_asset_graph`` is **duck-typed**: it accepts anything
@@ -9,8 +9,8 @@ nothing orchestrator-side installed. The coupling is to a *shape*, not to a
 distribution, and that is a property worth keeping rather than an accident.
 
 Tier 3 - the write path - is declared in :mod:`crosslink.protocol` and is not
-yet implemented. That is the direction this project exists to build, and it is
-deliberately the last thing standing.
+yet implemented. That is the direction this project exists to build, and it
+comes last on purpose.
 """
 
 from .context import ProjectContext

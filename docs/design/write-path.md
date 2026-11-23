@@ -67,24 +67,20 @@ flowchart LR
 What each hop refuses, because the refusals are the design:
 
 - **`findings()` proposes nothing rather than invent.** An undeclared lineage
-  root has no proposal: the consistent edit would be an external source, and
-  a source requires a system only a human knows. A finding without a proposal
-  is still a finding (`findings.py`, module docstring).
-- **`Delta` is bound to a project.** `diff` refuses to compare across
-  projects, and every consumer downstream - `verify`, `generate` - refuses a
+  root is reported with no proposal attached (`findings.py`).
+- **`Delta` is bound to a project.** `diff` will not compare two projects'
+  snapshots, and every consumer downstream - `verify`, `generate` - refuses a
   delta whose `(format, name)` is not the one the tree reduces to, before
   doing any work: a verdict against the wrong subject is evidence about
   nothing.
 - **`PatchObject` cannot be built from a refusing verdict.** The refusal is at
-  construction, not delivery, so a proposal whose own evidence says it did not
-  do what it claimed cannot be packaged. It also refuses a title or rationale
+  construction, not delivery (`deliver.py`). It also refuses a title or rationale
   that places a closing keyword before an issue reference - the two become a
   commit message the target's forge scans.
-- **Delivery never overwrites.** A branch that exists, a non-empty emission
-  directory, or an edit set already true in the target are each refused; a
-  second delivery is a new decision. No parameter anywhere in `deliver.py`
-  accepts a credential - the forge half is a callable the operator supplies
-  per act.
+- **Delivery never overwrites anything.** An existing branch, an emission
+  directory with anything in it, and edits the target already holds are each
+  refused. No parameter anywhere in `deliver.py` accepts a credential; the
+  forge half arrives as a callable, per act.
 
 ## The search, as a sequence
 
@@ -115,55 +111,50 @@ sequenceDiagram
             G->>G: refused += Attempt(edit, verdict)
         end
     end
-    G-->>K: Generation(accepted=None, refused) - exhaustion is an outcome, not an exception
+    G-->>K: Generation(accepted=None, refused) - returned when the budget runs out, not raised
 ```
 
 Three properties the sequence encodes, each stated in the module:
 
-- **A crash is feedback here and only here.** `verify` lets a broken patch
-  raise; the generator *is* whoever wrote the patch, so it records the
-  sandbox's error verbatim on the attempt and the next round sees it. An
-  `Attempt` records exactly one of verdict or error - checked where the value
-  is made.
-- **Anything the proposer itself raises propagates.** A broken channel is not
-  a refused attempt; `GenerationError` is reserved for the model-backed
-  proposer's channel failing, never for the search failing.
-- **An exhausted search is evidence about the proposer.** `Generation` carries
-  the full trace either way, which is what a calibration run reads.
+- **An edit the sandbox cannot apply becomes an attempt.** `verify` raises on
+  it, and `generate` records the error text on the `Attempt`, with no
+  verdict, for the next request to carry. An `Attempt` holds exactly one of a
+  verdict or an error, checked where the value is made.
+- **What the proposer raises is not caught.** It reaches the caller of
+  `generate` and is never recorded as an attempt. `GenerationError` is the
+  model-backed proposer's error for its own channel.
+- **`Generation` carries the whole trace either way,** accepted or not: every
+  refused attempt, in order.
 
 ## What the oracle can say
 
-`verify()` reduces the tree as it stands, applies the patch to a *copy* - its
-own mappings, so a patch that mutates in place cannot edit the caller's tree
-on the way to a refusal - reduces again, and compares `diff(C, C')` with the
-stated delta field by field, excluding the binding fields.
+`verify()` reduces the tree as it stands, hands the patch a *copy* with
+mappings of its own, so a patch that mutates in place cannot edit the caller's
+tree on the way to a refusal, reduces the copy, and compares the diff of the
+two reductions against the stated delta field by field, leaving out the
+binding fields.
 
 | Outcome | Shape | Meaning | What `generate` does with it |
 | --- | --- | --- | --- |
-| accepted | `Verdict(closes=True, disagreements=())` | the observed delta *equals* the stated one | ends the search, accepted |
+| accepted | `Verdict(closes=True, disagreements=())` | observed and stated are *equal* | ends the search, accepted |
 | refused | `Verdict(closes=False, disagreements=(nouns...))` | the collections where observed and stated differ, named | records the attempt with its verdict; the next proposer sees the nouns |
-| wrong subject | `ValueError` before any patch runs | the stated delta is bound to another project than the tree reduces to | never receives it from `verify`: `generate` makes the same check itself, before any proposal is requested, and raises `ValueError` to its caller; no attempt is recorded |
-| renamed subject | `ValueError` from `diff(before, after)`, after the patch ran in the sandbox and the copy was re-reduced | the patch renamed the project, so `diff` refuses to compare across projects and the harness does not catch what it cannot interpret | does not meet it: `TreeEdit.apply` carries the tree's name through, so no proposal it judges renames the project. A `ValueError` reaching it from `verify` is recorded as an attempt with the error text and no verdict, and the search continues |
-| the patch raises | propagates | a broken patch is not a refusal | (generate catches only `ValueError`; anything else propagates) |
+| wrong subject | `ValueError` before any patch runs | the stated delta names a different `(format, name)` from the tree's | never receives it from `verify`: `generate` makes the same check itself, before any proposal is requested, and raises `ValueError` to its caller; no attempt is recorded |
+| renamed subject | `ValueError` from `diff(before, after)`, after the patch ran in the sandbox and the copy was re-reduced | the patch renamed the project; `diff` refuses a pair of snapshots from two projects, and `verify` lets that refusal through | does not meet it: `TreeEdit.apply` carries the tree's name through, so no proposal it judges renames the project. A `ValueError` reaching it from `verify` is recorded as an attempt with the error text and no verdict, and the search continues |
+| the patch raises | propagates | the exception reaches the caller as raised | (generate catches only `ValueError`; anything else propagates) |
 
-**Closes means equals.** A patch that did more than it claimed in declaration
-space did something nobody stated in advance, and accepting it would put the
-surplus outside the mechanism (`verify.py`, module docstring). The known
-consequence: a finding's proposal corrects one field in declaration space,
-and the natural tree patch also drops the columns that declaration
-contributed - the oracle observes a wider delta and refuses. That refusal is
-the oracle being right; `findings.py` says so and the tests demonstrate it.
+**Closes means equals** (`verify.py`): the verdict accepts only an observed
+delta identical to the stated one. So a finding's proposal can be
+refused by the oracle that judges it, when the natural tree patch moves more
+than the one field the proposal states; `findings.py` describes the case, and
+the tests show it.
 
-**The blind spot is structural, and priced.** The comparison sees exactly what
-the reduction sees. A patch can close its delta while breaking something the
-reduction does not model - declaration text the parser ignores, the compute
-behind a model - and the harness accepts it. ADR-0003 names the target
-project's own suite as the second, independent verifier; the oracle's
-calibration - `TestTheBlindSpot` in `tests/test_verify.py` - demonstrates
-the blind spot with a passing oracle and a failing stand-in suite rather
-than describing it. `verify.py`'s module docstring calls that file "the
-calibration suite"; `tests/test_conformance_calibration.py` is a different
-file, and this document names the two apart.
+**The blind spot is structural, and priced.** ADR-0003 prices it: the oracle
+sees only what the reduction sees, and the target project's own suite is the
+second, independent verifier. The test that shows it is
+`tests/test_verify.py`'s `TestTheBlindSpot`, where the oracle accepts a patch
+that a stand-in suite for the target project refuses. It is not
+`tests/test_conformance_calibration.py`, which calibrates the conformance
+contract, and this document names the two apart.
 
 ## The seam the path hangs off
 
@@ -199,12 +190,9 @@ arms and no others.
 
 ## The wire, as a sequence
 
-Drawn from `wire.py` and `service.py`, READ. The codec decides
-what an envelope *is*; the comparer decides what a service *does* with two of
-them; they are separate modules on purpose because syntax and semantics
-evolve on different clocks - ADR-0004's consequences, which put the
-compare/decide half beside the codec and not inside it, and which the
-modules carry rather than decide.
+Drawn from `wire.py` and `service.py`, READ. `wire.py` is the codec and
+`service.py` the comparer: two modules, as ADR-0004's consequences place
+them.
 
 ```mermaid
 sequenceDiagram
@@ -234,12 +222,11 @@ sequenceDiagram
     end
 ```
 
-The decode ladder is a contract a future version leans on - **version before
-shape**, so a v2 envelope with a different shape refuses as
-`unknown-schema-version` rather than as malformed. That is ADR-0004's
-decision, not the module's: later payloads are new payload kinds inside this
-envelope, and the schema version moves only when the envelope's own shape
-does; the comment above `WIRE_SCHEMA_VERSION` restates it. The controls are a
+`decode_envelope` checks **version before shape**, so an envelope of a later
+version refuses as `unknown-schema-version` whatever its shape. That later
+payloads are new payload kinds inside this envelope, and that the schema
+version moves only when the envelope's own shape does, is ADR-0004's
+decision; the comment above `WIRE_SCHEMA_VERSION` restates it. The controls are a
 closed set: `unknown-schema-version`, `unknown-payload-kind`,
 `malformed-envelope`, `digest-mismatch` - read them with
 `grep -n '^[A-Z_]* = "' src/crosslink/wire.py`, which lists five string
@@ -253,13 +240,11 @@ The verdict has three kinds and one load-bearing shape - the same grep over
 `src/crosslink/service.py` lists four string constants: the three kinds, and
 `IDENTITY_MISMATCH`, the comparer's one refusal control. `BASELINE` is its own
 kind because "nothing to compare against" and "compared, and nothing moved"
-are different statements. `DRIFT` with **empty** `changed_layers` and
-`digest_changed=True` is the shape the payload's redundancy exists for: the
-layered fingerprint covers models and sources only, so a change in the four
-nouns it cannot see - keys, joins, semantic models, metrics - surfaces as
-undifferentiated drift rather than being folded into `NO_DRIFT`. ADR-0004
-prices that redundancy; the comparer honours it by never letting the two
-answers disagree silently.
+are different statements. A `DRIFT` whose `changed_layers` is **empty** and
+whose `digest_changed` is true is the shape the payload's redundancy exists
+for: a change only to keys, joins, semantic models or metrics, which no layer
+hash reads, is reported as drift and never as `NO_DRIFT`. ADR-0004 prices
+that redundancy.
 
 ## The comparer as a process
 
@@ -272,42 +257,35 @@ ADR-0004's decision, which the module carries. Where the process runs and
 what owns its lifecycle are its deployment's to decide, and the module
 decides neither.
 
-A `POST /<sender>` is judged in three layers, in this order, and the order
-is the contract: the **frame** (`ration.frame`, decoded against the sender's
-`SequenceLedger` before anything reads the body; a refusal answers 400), the
-**envelope** (`decode_envelope` on the frame's body; 422), the **comparer**
-(`observe` against the standing objective; `identity-mismatch` answers 422,
-a verdict 200). Every request the comparer answers leaves exactly one JSON
-line on stdout; a request whose ledger or baseline write fails raises
-instead, and leaves no line and no answer. The line carries `layer` as a
-field of its own beside `control` - so a
-`crc-mismatch` and a `digest-mismatch` differ in two fields and cannot land
-as one signal in the log, and `unknown-payload-kind`,
-the one control name all three layers use, is told apart by `layer` alone.
-Three controls are the process's own, decided before a body is read:
-`unknown-sender` (the set of senders is the caller's, so a stranger cannot
-allocate ledgers), `length-required` and `body-too-large`.
+A `POST /<sender>` is judged in three layers, always in this order: the
+**frame** (`ration.frame`, checked with the sender's `SequenceLedger` before
+the body is read; 400 on a refusal), then the **envelope** (`decode_envelope`
+over the frame's body; 422), then the **comparer** (`observe`; 422 for
+`identity-mismatch`, 200 for a verdict). Each answered request writes one
+JSON line to stdout, with `layer` and `control` as separate fields, so
+`unknown-payload-kind`, a control name used by all three layers, still
+reads apart. When writing the ledger or
+the baseline fails, the request raises, and is neither answered nor logged. Three
+refusals come before a body is read and are the process's own:
+`unknown-sender`, for a path that names no sender it was started with,
+`length-required` and `body-too-large`.
 
-The standing objective is the last **accepted** envelope, kept as the bytes
-that arrived and written to `--baseline` before the verdict is answered, so
-that a restart starts from the objective it had and the first request after
-it is a `no-drift`, not a `baseline`. A refused request never touches it. A
-comparer that could not keep it refuses to start rather than failing at its
-first verdict: a baseline that does not decode, a baseline directory that does
-not exist, and one this process cannot write in, the last found by making the
-verdict's own first write and removing it.
-The ledgers are on disk beside the baseline, at its path with `.ledger`
-appended, so a restart remembers them and a replay against a restarted
-comparer is refused, where a fresh ledger would have trusted it - the cost
-`ration.frame`'s docstring leaves to its consumer. The file is written the
-way the baseline is, before the answer and before the baseline, and one that
-does not decode refuses to start. Its removal, while the process is stopped,
-is the by-hand clear for the epoch hazard: a store that loses its data
-restarts the producer's epoch below what the ledger accepted, and a restart
-alone no longer clears the refusal. A sequence is consumed once its frame
-passes the frame checks, so an envelope refusal, an `identity-mismatch` and a
-frame of a registered kind the comparer does not serve each move the ledger;
-a frame refusal does not.
+The standing objective is the envelope last **accepted**, stored as received
+at `--baseline` before its verdict goes out; after a restart, the first
+request reads `no-drift`. Refused requests leave it alone. The comparer
+refuses to start, rather than fail at its first verdict, when the baseline
+fails to decode, when its directory is missing, and when the process cannot
+write there, which it finds by making and removing the verdict's own first
+write. The ledgers are in a file beside the baseline, its path plus
+`.ledger`, so a restarted comparer still refuses a replayed frame
+(`ration.frame`'s docstring leaves that to its consumer). The file is written
+like the baseline, before the answer and before the baseline, and one that
+fails to decode also stops the start. Removing it while the process is
+stopped is the by-hand clear for the epoch hazard: once a store's data is
+lost, the producer's epoch falls below the ledger, and restarting alone
+leaves the refusals in place. A frame that clears the frame layer spends its
+sequence, even when the envelope or the comparer refuses after it; a frame
+refusal spends nothing.
 
 ## The producer as a process
 
@@ -315,8 +293,8 @@ Drawn from `produce.py`, READ. It is the comparer's sender: one run
 reduces a graph, publishes, frames and posts, and writes one JSON line -
 none when its store cannot be used, which raises, as `ration`'s `publish.py` raises
 it. The
-producer is this repository's module and runs beside the tree it reduces,
-not as a step of that tree's own job: the tree is named by `--load` and
+producer is this repository's module, run next to the tree it reduces
+rather than as a step of that tree's own job: the tree is named by `--load` and
 `--carve`, as arguments, and nothing here imports it. Its epoch is a
 publication generation, read from the store. The carve is the reduced
 tree's own rule, applied by that tree's function. Where a producer runs,
@@ -344,44 +322,36 @@ sequenceDiagram
     end
 ```
 
-The epoch is what makes an infrequent sender safe to order without state:
-the store's version is monotonic per key and never reused, so every run's
-epoch is above every earlier run's, the comparer's ledger accepts it at count
-zero, and a frame from any earlier run is `sequence-replayed`. That holds
-while the store keeps its data: a store that loses it is the epoch hazard
-named above: its frames are refused until its generation passes the ledgered
-epoch, and its clear is removing the comparer's ledger file. Every run
-publishes, an unchanged graph included, so the topic's generation advancing
-with every run is a liveness signal. Nothing is retried: a refused publication is a
-second writer, a topology fact, and an undelivered frame is superseded by
-the next run's epoch. `RATION_DSN` unset refuses the run rather than disarming
-it, because without a store there is no epoch to frame with; `--dry-run`
-reduces without one.
+Each run's epoch is the store's generation for its topic, and the
+comparer's ledger accepts it at count zero. While the store keeps its data, a
+frame from an earlier run is refused `sequence-replayed`; when it does not,
+that is the epoch hazard named above, cleared by removing the comparer's
+ledger file. Every run publishes, including one whose graph did not change.
+Nothing is retried, within a run or across one. `RATION_DSN` unset refuses
+the run; `--dry-run` reduces without a store.
 
 ## Sharp edges a reader should carry
 
-- **The envelope carries no ordering claim.** No generation, no sequence, no
-  fencing field: a consumer-trusted ordering claim is coordination state and
-  belongs to the substrate, not the wire (`wire.py`, module docstring).
-  `emitted_at` and `producer_version` exist for the log line; no reader may
-  branch on them.
+- **The envelope carries no ordering claim:** no generation, sequence or
+  fencing field, as ADR-0004 decides. The log line is what the
+  `emitted_at` and `producer_version` fields serve, and nothing reads them to
+  decide anything.
 - **Canonical JSON is one call, including a default.** `sort_keys`,
   compact separators, `allow_nan=False`, *and* `ensure_ascii=True` by
-  default - a second producer that copies the three named arguments and not
-  the default emits a dialect.
-- **A rename reads as drop-and-add.** Two snapshots record difference, not
-  intent; ADR-0003 names this as the vocabulary's known falsifier, and the
-  limit is stated in `delta.py` rather than solved there.
-- **`observe` is pure.** No persistence, no leases, no held state - whoever
-  calls it owns the previous envelope. The delta and proposal payload kinds
-  are named in `service.py` as *not built early*; ADR-0004's consequences
+  default, which a copy of only the named arguments would miss.
+- **A renamed model diffs as a drop and an add.** ADR-0003 calls this the
+  vocabulary's known falsifier; `delta.py` states the limit and does not
+  solve it.
+- **`observe` holds nothing.** Its caller keeps the previous envelope.
+  `service.py` says the payload kinds for delta and proposal are *not built
+  early*; ADR-0004's consequences
   hold their gates. The long-lived process is `serve.py`, and it takes
   exactly the split the bullet's first sentence states: the process owns the
   previous envelope and the file it came from, and `observe` holds nothing.
 - **Nothing here holds a credential, and nothing here names the tool.** The
   delivery adapter borrows the operator's ambient identity per act, and a
-  rendered body carries the rationale and the evidence but no product
-  identifier - the evidence is the signature. The producer uses one: it
+  rendered body holds the rationale and evidence, and no product
+  identifier. The producer uses one: it
   reads `RATION_DSN` from its environment per run and
   writes exactly one thing with it, the topic pointer - borrowed per act the
   way delivery borrows an identity, held nowhere, and never on the wire. The

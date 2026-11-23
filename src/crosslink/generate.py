@@ -3,13 +3,13 @@
 """Patch generation: search against the oracle, with a model as the searcher.
 
 The write path's last component, and the only swappable one. ADR-0003 fixed
-the mechanism before anything here existed: the intended effect of a change is
-stated as a :class:`~crosslink.delta.Delta` in advance, and a patch is
-accepted only when applying it in a sandbox and re-reducing closes that
-delta. Generation therefore is never "a model writes a patch and we hope" -
-it is search against an oracle that already knows the answer, and this module
-is the search loop. Nothing downstream changes: an accepted attempt carries
-the same :class:`~crosslink.verify.Verdict` a hand-written patch would, and
+the mechanism before anything here existed, and says why: a
+:class:`~crosslink.delta.Delta` stated first, and a patch kept only if its
+re-reduction in a sandbox closes it. So generation is search against an
+oracle that already knows the answer, and this module is the search
+loop. Nothing downstream changes: an accepted
+attempt carries the same :class:`~crosslink.verify.Verdict` a hand-written
+patch would, and
 :class:`~crosslink.deliver.PatchObject` neither knows nor asks who wrote the
 edits it carries.
 

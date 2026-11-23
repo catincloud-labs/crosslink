@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Delivery: a verified proposal rendered where a human can accept it.
 
-ADR-0003 fixes the seam this module sits on: ``propose_edits`` returns the
-patch object - diff, rationale, and the verification evidence from the
-sandbox run - and rendering it as a pull request (or anything else) is an
-adapter, so the choice of forum never reaches the core. :class:`PatchObject`
-is that noun, given a shape; the two delivery modes here are its adapters.
+ADR-0003 fixes the seam this module sits on, and gives its reasons: what
+``propose_edits`` hands back is a patch object that carries its own
+evidence, and every rendering of it is an adapter the core never sees.
+:class:`PatchObject` is that noun, given a shape; the two delivery modes here
+are its adapters.
 Nothing in this module generates, judges, or amends a proposal - it carries
 one, and the carrying is deliberately the least interesting step of the loop.
 
@@ -271,9 +271,8 @@ def render_body(patch: PatchObject) -> str:
 
     One rendering for both delivery modes, so the floor mode carries exactly
     what the pull request would - the mode changes who applies the edits,
-    never what they are shown. The verification section is the machine's
-    answer to the question every serious review template asks: how do we
-    know it worked.
+    never what they are shown. The verification section is the evidence
+    ADR-0003's patch object carries, rendered verbatim.
     """
 
     verdict = patch.verdict
@@ -389,7 +388,7 @@ def deliver_pull_request(
     request, and return the receipt.
 
     The git half needs only a clonable address - a local path or bare
-    repository works, which is what makes this testable with no network and
+    repository works, which is what makes this testable offline and with
     no forge - and runs in an ephemeral clone, so the operator's own
     checkouts are never touched. git's repository-location environment
     (``GIT_DIR`` and kin) is scrubbed for every command, so an invocation

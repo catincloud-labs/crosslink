@@ -110,14 +110,14 @@ src/crosslink/
   __init__.py      the package surface - what `import crosslink` exports
   model.py         the neutral project model
   protocol.py      the tiered seam - tier 3 is declared here
-  context.py       how a project is located and built
+  context.py       where a project is found, and how it is built
   declarations.py  declared keys, joins, semantics, sources
   project.py       reduction from an asset graph - DagsterProject
   dbt.py           the second format - DbtProject, tiers 1 and 2
-  conformance.py   an importable contract for project formats
+  conformance.py   the contract a project format is judged by, importable
   conformance_calibration.py  formats built to fail that contract, shipped beside it
   findings.py      self-consistency findings, computed from one snapshot
-  delta.py         the typed delta between two declaration snapshots
+  delta.py         a typed delta between two snapshots
   verify.py        the oracle harness: sandbox apply, re-reduce, compare
   generate.py      bounded search against the oracle; the proposer is a callable
   deliver.py       a verified proposal rendered as a pull request, or as files
@@ -163,7 +163,7 @@ run:
   that names a URL, and the package's own `__version__` equal to the wheel's;
 - the stranger-shaped projects in `.github/strangers/` have judged that wheel
   from a fresh environment: each format built to fail the contract fails
-  exactly the arms its defect is for, and a correct one passes them all.
+  exactly the arms aimed at its defect, and a correct one passes them all.
 
 Each of those checks is also run on inputs built wrong on purpose, on every
 pull request and before every release, and the run fails unless each one is
@@ -231,9 +231,10 @@ calls mandatory: it is the recipe for a machine with no checkout to trust,
 not a second way to run CI.
 
 Nothing orchestrator-side is installed by either form, and that is the point: the package imports
-no orchestrator at all. `from_asset_graph` is duck-typed, so the coupling is to a shape
-rather than to a distribution. If a future change makes the suite need an orchestrator to
-pass, that is a coupling worth noticing rather than absorbing.
+no orchestrator at all. `from_asset_graph` accepts anything shaped like the definitions
+it reads, as the package's own docstring says, so nothing ties it to a distribution. If a
+future change makes the suite need an orchestrator to pass, that is a coupling worth
+noticing rather than absorbing.
 
 ## Running the comparer
 

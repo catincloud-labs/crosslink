@@ -3,9 +3,10 @@
 """Formats built wrong on purpose, so the contract can be watched going red.
 
 :mod:`crosslink.conformance` ships so that an implementer outside this
-repository can run it. A contract observed only to pass has not been shown to
-be a control, so the cases built to make it fail ship beside it. Run one
-through the contract and the arms its defect is for go red, and no others.
+repository can run it. Until a contract has been seen to fail, nothing shows
+that it can tell a wrong format from a right one, so wrong formats ship
+beside it. Run one through the contract and the arms its defect is for go
+red, and no others.
 
 Three formats, each a thin wrapper around a real ``DagsterProject`` so each is
 wrong in **exactly one way**. A subject wrong in two ways proves only that the
@@ -50,7 +51,7 @@ formats under that repository's CI and asserts each split twice: the observed
 reds against a literal written in the test, and ``expected_reds`` against the
 same literal, so a change to either side here goes red there. Like the
 contract's, the names here are public surface once a format pins against
-them, and renaming one is a breaking change.
+them, so a rename breaks every format that does.
 
 Measures: src/crosslink/conformance.py, ProjectSourceContract
 Measures: src/crosslink/conformance.py, FingerprintedProjectContract

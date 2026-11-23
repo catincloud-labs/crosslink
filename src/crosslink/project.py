@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """A project whose source of truth is an orchestrated asset graph.
 
-This implements tiers 1 and 2 and deliberately not tier 3. The reason is
-structural rather than a preference: the source of truth is the Python that
-builds the graph, so an edit written back into this project's reduction would
-be an edit to something regenerated from elsewhere - overwritten on the next
-run, and misleading in review in the meantime.
+This implements tiers 1 and 2 and deliberately not tier 3. ADR-0001
+records why a reduction of a graph built by code declines edits. One cost
+the record does not name is this module's: until the next run overwrote
+it, an edit written back into the reduction would also mislead review.
+The source of truth here is the Python that builds the graph.
 
 **The core takes plain data.** :class:`DagsterProject` is constructed from
 models and declaration text, so it needs neither an orchestrator nor an engine

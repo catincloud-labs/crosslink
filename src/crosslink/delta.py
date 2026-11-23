@@ -28,9 +28,9 @@ form public, which is what lets the round-trip property be stated exactly -
 **A rename reads as drop-and-add.** Two snapshots record difference, not
 intent: nothing in them says the model that vanished and the model that
 appeared are the same one under a new name. ADR-0003 names this as the
-vocabulary's known falsifier - an edit two snapshots cannot represent takes a
-superseding record, not a workaround - so the limit is stated here and not
-solved here.
+vocabulary's known falsifier and says what answering it would take, which is
+nothing this module may do - so the limit is stated here and not solved
+here.
 
 **An identical restatement is one statement.** The parsers gather declarations
 across files, and two files may legitimately state the same key - byte for
