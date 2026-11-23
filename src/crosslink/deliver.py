@@ -271,9 +271,8 @@ def render_body(patch: PatchObject) -> str:
 
     One rendering for both delivery modes, so the floor mode carries exactly
     what the pull request would - the mode changes who applies the edits,
-    never what they are shown. The verification section is the machine's
-    answer to what every serious review template asks of a change: whether
-    it worked, and how anyone knows.
+    never what they are shown. The verification section is the evidence
+    ADR-0003's patch object carries, rendered verbatim.
     """
 
     verdict = patch.verdict

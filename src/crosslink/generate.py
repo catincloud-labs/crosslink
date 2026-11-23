@@ -6,8 +6,8 @@ The write path's last component, and the only swappable one. ADR-0003 fixed
 the mechanism before anything here existed, and says why: a
 :class:`~crosslink.delta.Delta` stated first, and a patch kept only if its
 re-reduction in a sandbox closes it. So generation is search against an
-oracle that already knows the answer, not hope about what a model wrote,
-and this module is the search loop. Nothing downstream changes: an accepted
+oracle that already knows the answer, and this module is the search
+loop. Nothing downstream changes: an accepted
 attempt carries the same :class:`~crosslink.verify.Verdict` a hand-written
 patch would, and
 :class:`~crosslink.deliver.PatchObject` neither knows nor asks who wrote the

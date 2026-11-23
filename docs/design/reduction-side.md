@@ -167,8 +167,8 @@ failure shape (missing, unreadable, not a mapping, no name);
 and the disk walk alike. It drops `.` segments, and empty segments except a
 leading one, which makes the entry absolute, so `./models`, `models/` and
 `models/./staging` route as `models` and `models/staging` do; and it drops,
-noting each, an absolute entry, an entry containing `..` anywhere, and an
-entry left empty; `_route`
+noting each, an absolute entry, an entry with a `..` segment, and an entry
+left empty; `_route`
 (l.321-366) sorts files under the model paths into the parsers' channels **by
 top-level key**, so one schema file carrying `models:` beside `sources:`
 feeds two parsers, and a file declaring none of the four vocabularies is
@@ -253,7 +253,7 @@ semantics, sources)` (l.198-209); every arm runs. What the arms assert, READ:
 | `test_a_dangling_join_side_is_agreed_by_notes_and_findings` | the notes and `findings` disagreeing about one snapshot - the tripwire for `absent_join_sides` (l.288-300) |
 | `test_semantic_models_and_metrics_are_read` | semantic models and metrics declared and not read (l.302-307) |
 | `test_an_external_source_is_read_and_attributed_to_its_reader` | a source read without its system, schema, table, columns or the model that reads it (l.311-321) |
-| `test_a_source_requires_a_system_it_cannot_invent` | a placeholder system, and with it a finding that names a table nobody declared |
+| `test_a_source_requires_a_system_it_cannot_invent` | a placeholder system, and with it a finding about a table under a system nobody declared |
 | `test_mixed_schema_presence_under_one_system_never_raises` | the `None`/`str` sort crash on valid input; asserts the canonical order, unschema'd first |
 | `test_one_table_declared_twice_is_one_source_with_two_readers`, `test_a_project_that_only_declares_sources_is_not_empty` | double-counted contracts; sources not counting as a statement |
 | `test_the_declared_channel_is_not_vacuous` | the builders producing nothing while every arm above still passes (l.375-387) |
@@ -380,13 +380,10 @@ still accepts human patches and proves they did what was intended".
 
 ## Sharp edges a reader should carry
 
-- **Two formats refuse duplicates differently, and both are right.** A
-  duplicate model name is an *error* in the Dagster format (one model is
-  about to disappear, and the graph never had a compile step to catch it)
-  and a *note* in the dbt format (dbt refuses it when it compiles; a read
-  path keeps the first and says so). The two differ on whether the source of
-  truth can already carry the collision: dbt's compile step does, a graph has
-  none.
+- **Two formats treat duplicates differently.** A duplicate model name is an
+  *error* in the Dagster format and a *note* in the dbt format, which keeps
+  the first in path order. Each module's docstring gives its reason
+  (`project.py`'s `from_asset_graph`, `dbt.py`'s `_models_from_sql`).
 - **What a layer is belongs to each format.** Medallion tier from asset
   metadata in one format, first directory under `model-paths` in the other;
   the comparer needs only that a format compute it identically each time. Two formats

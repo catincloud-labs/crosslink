@@ -97,9 +97,8 @@ class Verdict:
     ``disagreements`` names the collections where they differ - empty exactly
     when ``closes`` - so a refusal arrives naming the failed claim, not just
     the fact of failure. ``before`` and ``after`` are the two reductions the
-    verdict was computed from. ADR-0003 has the evidence travel with the
-    answer, so a renderer shows what the sandbox actually saw rather than
-    asserting that it looked.
+    verdict was computed from: the evidence that travels with the answer,
+    as ADR-0003 decides.
     """
 
     closes: bool

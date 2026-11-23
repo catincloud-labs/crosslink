@@ -5,8 +5,8 @@
 ADR-0004 names the first payload, a fingerprint, and the kind of service it
 travels to, and this module is the codec half of that arc: what
 an envelope *is*, how it becomes bytes, and how bytes become an envelope or a
-typed refusal. What a service *does* with two envelopes is semantics, not
-syntax, and lives elsewhere on purpose.
+typed refusal. What a service *does* with two envelopes lives in
+:mod:`crosslink.service`, for the reason ADR-0004's consequences give.
 
 Three decisions shape everything here:
 

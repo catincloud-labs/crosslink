@@ -100,12 +100,10 @@ What the stub cannot prove -- a real store answering -- is a deployed run's to
 prove, in its first line, or in the traceback that stands in its place
 (above).
 
-The epoch inherits one hazard, stated where the comparer states it: when a
-store's data is lost, its generations begin again below the comparer's ledger,
-and its frames are ``sequence-replayed`` until its generation passes the
-ledgered epoch or the comparer's ledger file is removed by hand; a restart of
-the comparer alone clears nothing.
-``crosslink.serve``'s docstring says when that removal is the remedy.
+The epoch inherits one hazard, a store whose data is lost. It is stated
+once, with its remedy, in ``crosslink.serve``'s docstring; what this process
+sees of it is its frames refused ``sequence-replayed``, run after run, while
+the store is the one it posts from.
 
 ## Deliberately absent
 

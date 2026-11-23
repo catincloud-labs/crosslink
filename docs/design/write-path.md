@@ -262,8 +262,9 @@ A `POST /<sender>` is judged in three layers, always in this order: the
 the body is read; 400 on a refusal), then the **envelope** (`decode_envelope`
 over the frame's body; 422), then the **comparer** (`observe`; 422 for
 `identity-mismatch`, 200 for a verdict). Each answered request writes one
-JSON line to stdout, with `layer` and `control` as separate fields, so a
-control name two layers share still reads apart. When writing the ledger or
+JSON line to stdout, with `layer` and `control` as separate fields, so
+`unknown-payload-kind`, a control name used by all three layers, still
+reads apart. When writing the ledger or
 the baseline fails, the request raises, and is neither answered nor logged. Three
 refusals come before a body is read and are the process's own:
 `unknown-sender`, for a path that names no sender it was started with,
@@ -326,11 +327,8 @@ comparer's ledger accepts it at count zero. While the store keeps its data, a
 frame from an earlier run is refused `sequence-replayed`; when it does not,
 that is the epoch hazard named above, cleared by removing the comparer's
 ledger file. Every run publishes, including one whose graph did not change.
-Nothing is retried: a refused publication is a
-second writer, a topology fact, and an undelivered frame is superseded by
-the next run's epoch. `RATION_DSN` unset refuses the run rather than disarming
-it, because without a store there is no epoch to frame with; `--dry-run`
-reduces without one.
+Nothing is retried, within a run or across one. `RATION_DSN` unset refuses
+the run; `--dry-run` reduces without a store.
 
 ## Sharp edges a reader should carry
 
@@ -353,7 +351,7 @@ reduces without one.
 - **Nothing here holds a credential, and nothing here names the tool.** The
   delivery adapter borrows the operator's ambient identity per act, and a
   rendered body holds the rationale and evidence, and no product
-  identifier - the evidence is the signature. The producer uses one: it
+  identifier. The producer uses one: it
   reads `RATION_DSN` from its environment per run and
   writes exactly one thing with it, the topic pointer - borrowed per act the
   way delivery borrows an identity, held nowhere, and never on the wire. The
