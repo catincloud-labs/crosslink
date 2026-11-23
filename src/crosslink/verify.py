@@ -5,9 +5,8 @@
 ADR-0003's mechanism, made runnable. A proposal states its intended effect as
 a :class:`~crosslink.delta.Delta` before any patch exists; the harness applies
 the patch to a copy of the project's inputs, rebuilds, re-reduces, and
-compares the observed delta - ``diff(C, C')`` - against the stated one. The
-question is never *"is this good code?"* but *"does the re-reduction produce
-the delta that was already specified?"*
+compares the observed delta - ``diff(C, C')`` - against the stated one.
+ADR-0003 holds the question this asks, and why it is the question.
 
 Three decisions here are deliberate, each stated rather than absorbed:
 
@@ -15,9 +14,9 @@ Three decisions here are deliberate, each stated rather than absorbed:
 tree, and the harness never inspects it - it applies it and judges the
 re-reduction. Understanding a patch is exactly the burden the mechanism
 exists to remove; a harness that grew an opinion about patch *content* would
-be review wearing a lab coat. Every patch this harness ever meets before the
-roadmap's last step is hand-written, which is what makes the verifier
-provable before a single prompt exists.
+be review wearing a lab coat. Every patch this harness meets before the
+roadmap's last step is hand-written, which is how ADR-0003 has the verifier
+proven before any model is asked for one.
 
 **Closes means equals.** A patch closes its stated delta only when the
 observed delta equals it exactly - not contains it, not approximates it. A
@@ -27,13 +26,13 @@ mechanism. The refusal names the nouns where the two deltas disagree, so a
 drift report can say which claim failed rather than that one did.
 
 **The oracle is necessary, not sufficient, and the blind spot is
-structural.** The comparison sees exactly what the reduction sees. A patch
-can close its delta while breaking something the reduction does not model -
+structural.** ADR-0003 prices this and names the second verifier, the
+target's own suite. Here, concretely: whatever the reduction does not model -
 declaration text the parser deliberately ignores, the compute behind a model -
-and this harness will accept it. That is not a defect to fix here: the
-target project's own test suite is the second, independent verifier ADR-0003
-names, and the calibration suite demonstrates the blind spot with a passing
-oracle and a failing stand-in suite rather than describing it in prose.
+a patch may break while closing its delta, and this harness accepts it. That
+is not a defect to fix here. ``TestTheBlindSpot`` in ``tests/test_verify.py``
+shows it: the oracle passes such a patch, and a stand-in for the target's
+suite fails it.
 
 The sandbox subject is a :class:`ProjectTree`: the plain-data constructor
 inputs of a :class:`~crosslink.project.DagsterProject`, which is why applying
@@ -98,9 +97,9 @@ class Verdict:
     ``disagreements`` names the collections where they differ - empty exactly
     when ``closes`` - so a refusal arrives naming the failed claim, not just
     the fact of failure. ``before`` and ``after`` are the two reductions the
-    verdict was computed from: the evidence travels with the answer, so
-    whatever renders a proposal can show what the sandbox actually saw
-    rather than asserting that it looked.
+    verdict was computed from. ADR-0003 has the evidence travel with the
+    answer, so a renderer shows what the sandbox actually saw rather than
+    asserting that it looked.
     """
 
     closes: bool

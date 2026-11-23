@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """An importable contract for project formats.
 
-Ships inside the package rather than beside it, because a contract that lives
-in a repository's test tree only serves formats inside that repository. An
-implementer outside it cannot run the one artifact that tells them whether they
-got it right.
+Ships inside the package rather than beside it. Kept under one repository's
+``tests/``, it could be run only by the formats in that repository, and an
+implementer elsewhere could not run the one artifact that tells them whether
+they got it right.
 
 Use it by subclassing and supplying a constructor::
 
@@ -26,14 +26,15 @@ format's external reads are part of what it declares, and a hook that could be
 skipped would let the assertions covering them go quietly unrun. A skip is not a
 signal.
 
-**The assertions here are behavioural, not structural.** A format can satisfy
-every type signature and still be wrong in the way that matters: raising on an
-absent or malformed project, on a read path where absence is ordinary. That is
-the property a second implementation is most likely to get wrong, and a suite
-that only checks shapes will pass it. Hence ``test_*_never_raises``.
+**The assertions here are behavioural, not structural:** this is the half of
+each tier that ADR-0001 says no ``isinstance`` can see. A format can satisfy
+every type signature and still raise where a project is missing or broken, on
+a read path where absence is ordinary. That is the property a second
+implementation is most likely to get wrong, and a suite that only checks
+shapes will pass it. Hence ``test_*_never_raises``.
 
 Once this is depended on, the builder names and the assertions are public
-surface: a format pins against them, and renaming one is a breaking change.
+surface: a format pins against them, so a rename breaks every one that does.
 That is worth accepting deliberately rather than discovering later.
 
 The formats built to fail this contract ship beside it, in

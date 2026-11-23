@@ -3,10 +3,11 @@
 """The service's semantics: compare two envelopes, say what drifted.
 
 The codec (:mod:`crosslink.wire`) decides what an envelope *is*; this module
-decides what a service *does* with two of them. Separate on purpose - a codec
-is syntax, a verdict is semantics, and the two evolve on different clocks.
-This is also where the delta and proposal payload kinds will be handled, when
-their gates open (ADR-0004's consequences); nothing here builds them early.
+decides what a service *does* with two of them. They are separate modules on
+purpose, for the reason ADR-0004's consequences give for keeping comparison
+out of the codec's own module. This is also where the delta and proposal
+payload kinds will be handled, when their gates open (ADR-0004's
+consequences); nothing here builds them early.
 
 The long-lived ``serve()`` is not here. It is beside this module, as
 :mod:`crosslink.serve`: a process that binds a socket and holds a baseline is

@@ -100,8 +100,8 @@ What the stub cannot prove -- a real store answering -- is a deployed run's to
 prove, in its first line, or in the traceback that stands in its place
 (above).
 
-The epoch inherits one hazard, stated where the comparer states it: a store
-that loses its data restarts generations below what the comparer ledgered,
+The epoch inherits one hazard, stated where the comparer states it: when a
+store's data is lost, its generations begin again below the comparer's ledger,
 and its frames are ``sequence-replayed`` until its generation passes the
 ledgered epoch or the comparer's ledger file is removed by hand; a restart of
 the comparer alone clears nothing.

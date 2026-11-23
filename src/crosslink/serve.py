@@ -11,17 +11,17 @@ says what that extra pins, and why).
 
 ## The order, and why the order is the contract
 
-A request is judged in three layers, in a stated order, and each layer's
-refusal is its own:
+A request is judged layer by layer, three layers in a fixed order, and each
+layer's refusal is its own:
 
 1. **The frame** (``ration.frame``): decoded against the sender's ledger
    before anything looks at the body. A frame refusal --
    ``truncated``, ``crc-mismatch``, ``sequence-replayed`` and the rest --
-   answers 400, and the body is never parsed. The ledger is per sender, keyed
-   by the ``POST`` path's one segment, and the set of senders is the caller's:
-   a segment naming no configured sender is refused as ``unknown-sender``
-   before the frame is read, so a stranger cannot allocate ledgers by
-   inventing names.
+   answers 400, and the body is never parsed. The ledger is per sender, named
+   by the single segment of the ``POST`` path, and the caller chooses the
+   senders: a segment naming no configured sender is refused as
+   ``unknown-sender`` without reading the frame, so a stranger cannot
+   allocate ledgers by inventing names.
 2. **The envelope** (:mod:`crosslink.wire`; ADR-0004): the frame's body,
    decoded only once the frame passed. ``malformed-envelope``,
    ``digest-mismatch`` and the rest answer 422.
@@ -49,11 +49,12 @@ baseline.
 
 ## The baseline is bytes, and it is on disk
 
-The standing objective is the last **accepted** envelope, kept as the exact
-bytes that arrived and written to ``baseline_path`` before the verdict is
-answered -- so a restart starts from the objective it had rather than from
-nothing, and the first ``POST`` after a restart is a ``no-drift``, not a
-``baseline``. A refused request never touches it. The write is a temp file
+What the comparer holds as its standing objective is the envelope it last
+**accepted**, kept as the exact bytes that arrived and written to
+``baseline_path`` before the verdict is answered -- so a restart resumes the
+objective it held rather than starting from nothing, and the first ``POST``
+after a restart is a ``no-drift``, not a ``baseline``. A refused request
+never touches it. The write is a temp file
 beside the target and ``os.replace``, so a crash mid-write leaves the old
 baseline whole rather than half of a new one. A baseline file that does not
 decode refuses to *start* rather than being ignored: the comparer's own state
@@ -70,13 +71,13 @@ sender has already spent a publication on it.
 
 ## The sequence ledgers are on disk beside it
 
-Each sender's ledger -- the last sequence accepted from it -- is kept in one
-file beside the baseline, at :func:`ledger_path` (the baseline's file name
-with ``.ledger`` appended), so a restart starts from the sequences it had.
-Without the file, the frame's own rule that the first frame a fresh ledger
-sees is trusted for ordering would let a replay against a restarted comparer
-through: the cost ``ration.frame``'s docstring states and leaves to its
-consumer, which here is this module.
+Each sender's ledger -- the last sequence accepted from it -- lives in a
+single file next to the baseline, named by :func:`ledger_path` (the
+baseline's file name with ``.ledger`` appended), so a restart resumes the
+sequences it held. Without the file, the frame's own rule that the first
+frame a fresh ledger sees is trusted for ordering would let a frame replayed
+to a restarted comparer through: the cost ``ration.frame``'s docstring
+states and leaves to its consumer, which here is this module.
 
 The file gets the baseline's care. It is written through a temp file beside
 it and ``os.replace``, before the answer, whenever a frame passes the frame
@@ -97,16 +98,16 @@ unchanged, so dropping a ``--sender`` for a while clears nothing.
 
 ## The epoch hazard, and what clears it
 
-The producer's epoch is a store generation, so a store that loses its data
-restarts the epoch below what this ledger accepted. Its frames are then
+The producer's epoch is a store generation, so when a store's data is lost
+its epoch begins again below what this ledger accepted. Its frames are then
 refused ``sequence-replayed`` (``sequence-duplicate`` for the one frame whose
 generation lands exactly on the ledgered sequence) until the rebuilt store's
 generation passes the ledgered epoch, which at one generation per run takes
 as many runs as the old store had made. That run of refusals is the evidence
 that the store lost its data, and a restart does not clear it: a deploy tool
 that recreates this process has judged nothing, and the refusals go on. The
-remedy is removing the ledger file while the comparer is stopped, once the
-producer is known to be the live one; at the next start each sender's first
+remedy is removing the ledger file while the comparer is stopped, after
+confirming which producer is live; at the next start each sender's first
 frame is trusted for ordering again. The file is read at start only, and a
 running comparer writes back what it holds at its next consumed frame from
 any sender, so a removal under a running process is undone by that frame.

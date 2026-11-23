@@ -2,19 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """The wire layer: a versioned envelope, and the fingerprint that rides in it.
 
-ADR-0004 names the first payload - a fingerprint, carried to a service that
-only reads and compares - and this module is the codec half of that arc: what
+ADR-0004 names the first payload, a fingerprint, and the kind of service it
+travels to, and this module is the codec half of that arc: what
 an envelope *is*, how it becomes bytes, and how bytes become an envelope or a
 typed refusal. What a service *does* with two envelopes is semantics, not
 syntax, and lives elsewhere on purpose.
 
 Three decisions shape everything here:
 
-- **The schema version lives beside the codec.** The placement record's first
-  ground: a wire format is a statement about the types it carries, and when a
-  type changes shape the format must change in the same commit or two
-  versions of the same schema are in service at once. One module, one
-  constant, one commit.
+- **The schema version lives beside the codec,** and moves with the types
+  it describes in the same commit, as ADR-0004 decides and argues. One
+  module, one constant, one commit.
 
 - **Canonical JSON is stdlib ``json.dumps``, and the whole call is the
   spec** - ``sort_keys=True``, ``separators=(",", ":")``,
@@ -22,20 +20,19 @@ Three decisions shape everything here:
   silent fourth participant: it decides how every non-ASCII character
   escapes, so a second producer that copies the three named arguments but
   not the default would emit a dialect. ``_canonical_json`` below is the
-  one authoritative statement of the form. The one serialize-then-hash
-  precedent in this tree hashes yaml because yaml was that function's
-  *input*; yaml as an output has presentation freedom a wire digest must
-  not inherit.
+  one authoritative statement of the form. It is not yaml, though the
+  tree's one earlier hash of a serialized value is over yaml (ADR-0004 says
+  why that one is): yaml as an output has presentation freedom a wire
+  digest must not inherit.
 
-- **Decode returns, never raises.** Bytes off a network are data, not
-  programmer error - the same posture the tier-2 ``fingerprint()`` contract
-  takes. Every way the bytes can be wrong maps to a :class:`WireRefusal`
-  carrying a control from the closed set below.
+- **Decode returns, never raises,** as ADR-0004 decides for refusals -
+  the same posture the tier-2 ``fingerprint()`` contract takes. Every way
+  the bytes can be wrong maps to a :class:`WireRefusal` carrying a control
+  from the closed set below.
 
 What is deliberately absent: any monotonic sequence, generation, or fencing
-field. A consumer-trusted ordering claim is coordination state, and
-coordination state belongs to the substrate; ordering is the caller's
-knowledge, not a wire claim. Also absent: any minted identity. The envelope's
+field, which ADR-0004 keeps off the wire and says why. Also absent: any
+minted identity. The envelope's
 ``project_format`` / ``project_name`` are self-description copied from the
 declarations - addressing data a reader may use to refuse a comparison, not a
 credential anything should trust.
@@ -102,13 +99,11 @@ class FingerprintPayload:
 
     ``layers`` and ``models`` are the shipped layered fingerprint - the
     conformance-pinned semantics that answer *which part* changed.
-    ``snapshot_digest`` is a hash over the whole canonical snapshot, because
-    the layered fingerprint covers models and sources only: without the
-    digest, a project could change every declared key and the payload would
-    swear nothing moved. Redundant on models and sources, and priced as such
-    in the record - two answers to "did it change" must never be allowed to
-    disagree silently, which is why the comparer treats a digest-only
-    difference as its own verdict shape rather than folding it away.
+    ``snapshot_digest`` hashes the whole canonical snapshot, which reaches
+    the four nouns the layers never read. ADR-0004 decides to carry both,
+    says why one half alone fails, and prices the overlap. The comparer pays
+    that price by giving a digest-only difference a verdict shape of its own
+    rather than folding it away.
     """
 
     layers: dict[str, str]
@@ -121,8 +116,8 @@ class Envelope:
     """One wire message: self-described, versioned, digest-checked.
 
     ``emitted_at`` and ``producer_version`` are informational only - no reader
-    may branch on them, because a claim about time or software on the far side
-    of a wire is not verifiable from here. They exist for the log line, not
+    may branch on them, because a claim about time or software at the other
+    end of a wire is not verifiable from here. They exist for the log line, not
     the verdict.
     """
 
