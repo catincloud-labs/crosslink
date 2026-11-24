@@ -88,7 +88,9 @@ leaves draft and the issue-correction rule; the rest is practice sessions
 learned, most of it after a wrong post had to be corrected. This subsection,
 the title sub-bullet above, *Verification method* and *The owner's workstation*
 are kept byte-identical across the organisation's unarchived repositories:
-change them everywhere or nowhere. Nothing checks it. Every block an
+change them everywhere or nowhere. The organisation's shared-section judge
+checks that these blocks agree when it is run; it does not read the rule in
+the next sentence. Every block an
 `AGENTS.md` says is kept byte-identical holds only its shared text and is
 never the last section in its file; a repository's own text goes under a
 heading of its own, after the block.
