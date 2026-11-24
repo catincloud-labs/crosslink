@@ -82,7 +82,7 @@ jobs:
           gh pr view "$PR" --json body -q .body > "$RUNNER_TEMP/pr-body.md"
           python scripts/check_closing_keywords.py "$RUNNER_TEMP/pr-body.md"
 
-      # The title is the merge commit's message, and a title holds no
+      # The title is the squash commit's subject, and a title holds no
       # `Autoclose:` trailer, so a closing verb before a number there is
       # refused outright. The title goes to the script twice. The scan refuses
       # a close the title does not acknowledge. A title that is itself a
