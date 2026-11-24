@@ -70,7 +70,7 @@ so the effect is stated as data rather than inferred from prose.
 
 The `closing keywords` check also reads the pull request title, and refuses
 a closing verb before a number there even when the close is meant. The title
-becomes the merge commit's message and holds no trailer, so a close you mean
+becomes the squash commit's subject and holds no trailer, so a close you mean
 goes in the PR body, with its `Autoclose:` trailer.
 
 ## Filing something
