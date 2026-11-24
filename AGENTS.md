@@ -33,10 +33,11 @@ moves stand behind that rule, each paid for in this organisation:
   it helps. Detailed bodies; the subject alone is rarely enough.
 - **A title is a git artifact. PR and issue titles take the commit form:**
   `type(scope): summary` - lowercase after the colon, one clause, at most 100
-  characters, no trailing period. A PR title becomes the merge commit history
-  cites as `#N`; the full sentence belongs in the body. Issues take the type
-  their fix would take; an issue arguing a fork rather than naming work is
-  `argument:`. Probe PRs say `probe:` - a type, not an exemption.
+  characters, no trailing period. A PR title becomes the squash commit's
+  subject, which history cites as `#N`; the full sentence belongs in the
+  body. Issues take the type their fix would take; an issue arguing a fork
+  rather than naming work is `argument:`. Probe PRs say `probe:` - a type,
+  not an exemption.
   - Guarded for PRs by `scripts/check_pr_title.py`, in the `pr title` job of
     `checks.yml`, identifier-aware: a summary that opens with an identifier,
     such as `MAX_BODY_BYTES`, passes, and sentence case is refused. Nothing
@@ -73,7 +74,7 @@ moves stand behind that rule, each paid for in this organisation:
   `Autoclose: #N` trailer enumerating exactly what closes. The
   `closing keywords` job also reads the pull request title, and refuses a
   closing verb before a number there even when the close is meant: the title
-  becomes the merge commit's message and holds no trailer, so a close you mean
+  becomes the squash commit's subject and holds no trailer, so a close you mean
   goes in the body, with its `Autoclose:` trailer.
   - Guarded by `scripts/check_closing_keywords.py`, as a `commit-msg` hook
     and again in the `closing keywords` job. Check a draft before pushing:

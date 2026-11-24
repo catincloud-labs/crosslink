@@ -11,6 +11,32 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `AGENTS.md`, *Change workflow*, the title bullet and the closing-verb bullet
+
+Read 2026-11-24 against `main` at `5425a3d` and this repository's merge
+settings, read with `gh api repos/catincloud-labs/crosslink`:
+`allow_merge_commit` is false, `squash_merge_commit_title` is `PR_TITLE` and
+`squash_merge_commit_message` is `PR_BODY`. Every pull request merges as a
+squash, whose subject is the title with `(#N)` appended and whose message
+continues with the pull request body, so no merge commit carries a title.
+Each sentence was rewritten to say the title becomes the squash commit's
+subject; that the title holds no trailer, and that a close you mean goes in
+the body, stands. They read:
+
+> A PR title becomes the merge commit history cites as `#N`; the full sentence belongs in the body.
+
+and
+
+> The `closing keywords` job also reads the pull request title, and refuses a closing verb before a number there even when the close is meant: the title becomes the merge commit's message and holds no trailer, so a close you mean goes in the body, with its `Autoclose:` trailer.
+
+## `CONTRIBUTING.md`, *Workflow*, *The auto-close trap*
+
+Read 2026-11-24 against the same commit and settings, for the same reason.
+The sentence was rewritten to say the title becomes the squash commit's
+subject. It read:
+
+> The title becomes the merge commit's message and holds no trailer, so a close you mean goes in the PR body, with its `Autoclose:` trailer.
+
 ## `AGENTS.md`, *Repo conventions*, the hook-enable bullet
 
 Read 2026-11-22 against `main` at `40567cf`. The bullet told every clone to
