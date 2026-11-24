@@ -301,13 +301,15 @@ jobs:
       - name: No record is cited while it is gated
         run: python3 scripts/adr_preconditions.py docs/adr
 
-  # A pull-request title becomes the merge commit history cites, so it takes
+  # A pull-request title becomes the commit history cites, so it takes
   # the conventional-commit form (`AGENTS.md`, Change workflow). Advisory.
   #
-  # Each non-merge commit in the pull request is judged too, since a pull
-  # request here merges with a merge commit and every commit on its branch
-  # lands on `main` as written: its subject by the title's form rules,
-  # without the 100-character cap, and a body beyond its trailers.
+  # Each non-merge commit in the pull request is judged too, where the
+  # repository's merge settings land it on `main`: its subject by the title's
+  # form rules, without the 100-character cap, and a body beyond its
+  # trailers. A merge commit lands every branch commit as written; a squash
+  # titled and bodied from the pull request, as this repository's settings
+  # read on 2026-11-24, lands none, so there they are not judged.
   pr-title:
     name: pr title
     if: github.event_name == 'pull_request'
@@ -341,6 +343,25 @@ jobs:
       # The title reaches the script through the environment, never
       # interpolated into shell: a title is attacker-adjacent text on a public
       # repository.
+      # Whether the commits land on `main` is read from this repository's own
+      # merge settings, never written here. GraphQL, because the REST
+      # repository read leaves the settings out for the run's token. The
+      # script decides from them and prints what it decided and from what: a
+      # squash titled and bodied from the pull request lands no branch commit,
+      # so there the commits are not judged. A setting that reads null is
+      # unread, and the commits are then judged, with a warning.
+      - name: Read how this repository merges
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api graphql -f owner="${GITHUB_REPOSITORY%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+              mergeCommitAllowed rebaseMergeAllowed squashMergeCommitTitle squashMergeCommitMessage } }' \
+            --jq '.data.repository | {allow_merge_commit: .mergeCommitAllowed, allow_rebase_merge: .rebaseMergeAllowed,
+              squash_merge_commit_title: .squashMergeCommitTitle, squash_merge_commit_message: .squashMergeCommitMessage}' \
+            > "$RUNNER_TEMP/pr-title-merge.json"
+          cat "$RUNNER_TEMP/pr-title-merge.json"
+
       - name: Judge the title and the commits
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -350,7 +371,8 @@ jobs:
         run: |
           python scripts/check_pr_title.py --title "$PR_TITLE" --author "$PR_AUTHOR" \
             --commits "$RUNNER_TEMP/pr-title-commits.jsonl" \
-            --commits-expected "$PR_COMMITS" --head-sha "$PR_HEAD"
+            --commits-expected "$PR_COMMITS" --head-sha "$PR_HEAD" \
+            --merge-settings "$RUNNER_TEMP/pr-title-merge.json"
 
   # Refuses the `pull_request_target` trigger in this repository's workflows,
   # naming file and line: that trigger runs with the base repository's token
