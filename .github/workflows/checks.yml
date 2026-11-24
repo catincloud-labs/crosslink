@@ -340,9 +340,6 @@ jobs:
             --jq '.[] | {sha, parents: (.parents | length), message: .commit.message}' \
             > "$RUNNER_TEMP/pr-title-commits.jsonl"
 
-      # The title reaches the script through the environment, never
-      # interpolated into shell: a title is attacker-adjacent text on a public
-      # repository.
       # Whether the commits land on `main` is read from this repository's own
       # merge settings, never written here. GraphQL, because the REST
       # repository read leaves the settings out for the run's token. The
@@ -362,6 +359,9 @@ jobs:
             > "$RUNNER_TEMP/pr-title-merge.json"
           cat "$RUNNER_TEMP/pr-title-merge.json"
 
+      # The title reaches the script through the environment, never
+      # interpolated into shell: a title is attacker-adjacent text on a public
+      # repository.
       - name: Judge the title and the commits
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
