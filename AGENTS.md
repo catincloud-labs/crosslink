@@ -3,8 +3,9 @@
 Operating rules for AI coding agents, and for humans skimming for the sharp
 edges. It covers the verification method, the change workflow, the repo
 conventions, the ASCII rule, living documents and records, the owner's
-workstation, the tests merged to main and the state of the tree. It grows with the tree - sections get
-added when there is something to describe, not before.
+workstation, the tests merged to main and the state of the tree. It grows
+with the tree - sections get added when there is something to describe, not
+before.
 
 ## Verification method
 
