@@ -258,18 +258,6 @@ does not forget which sequences it has consumed; `--bind` defaults to
 loopback. Where it runs, and behind what, is its deployment's to decide: the
 module offers no TLS and no authentication, and its docstring says so.
 
-The line on stdout is the comparer's own record of what it accepted and what
-it refused, and for a sender it does not know, or a frame it has already
-consumed, the only record on its side. Each line is one JSON object with its
-keys sorted: `event` is `verdict` or `refused`, `sender` and `size` say who
-sent how many bytes, and a refusal adds `layer` (`frame`, `envelope` or
-`comparer`), `control` and `detail`, so a CRC failure and a digest mismatch
-never read as one signal. The refusals, one per line:
-
-```bash
-grep '"event": "refused"' comparer.log
-```
-
 ## Running the producer
 
 The other half is `crosslink.produce`: one run reduces an asset
