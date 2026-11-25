@@ -11,6 +11,14 @@ from, with the date it was read and what it was read against. This lead is
 living; the entries below it are the record: read each as of when it was
 written.
 
+## `AGENTS.md`, its opening paragraph
+
+Read 2026-11-25 against `main` at `99e0fda`, in the change that adds the
+shared section `## Tests merged to main` to `AGENTS.md` (#35). The sentence
+listing what the file covers was rewritten to name that section. It read:
+
+> It covers the verification method, the change workflow, the repo conventions, the ASCII rule, living documents and records, the owner's workstation and the state of the tree.
+
 ## `AGENTS.md`, *Change workflow*, the title bullet and the closing-verb bullet
 
 Read 2026-11-24 against `main` at `5425a3d` and this repository's merge
