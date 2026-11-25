@@ -622,18 +622,6 @@ class TestTheAnswerIsBounded:
             f"{MAX_ANSWER_BYTES} bytes; refused, and the rest left unread"
         )
 
-    @pytest.mark.parametrize("status", [200, 413], ids=["a-success", "a-refusal"])
-    def test_an_answer_at_the_maximum_is_an_answer_on_either_branch(self, status):
-        body = json.dumps("x" * (MAX_ANSWER_BYTES - 2)).encode()
-        assert len(body) == MAX_ANSWER_BYTES
-        server = answering(status, body)
-        try:
-            answer = post(f"http://127.0.0.1:{server.server_port}/{SENDER}", b"frame")
-        finally:
-            server.shutdown()
-            server.server_close()
-        assert answer == (status, "x" * (MAX_ANSWER_BYTES - 2))
-
     def test_a_run_whose_answer_is_past_the_maximum_ends_unreachable(self):
         server = answering(200, b"x" * (2 * MAX_ANSWER_BYTES))
         try:

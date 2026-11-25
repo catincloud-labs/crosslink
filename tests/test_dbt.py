@@ -707,11 +707,6 @@ class TestTheProjectRootEntry:
         )
 
     @pytest.mark.parametrize(("paths", "models", "notes"), CASES)
-    def test_in_memory(self, paths, models, notes):
-        tree = a_tree_with_models_at_root_models_and_src(paths)
-        assert self.read(DbtProject(tree).declarations()) == (models, notes)
-
-    @pytest.mark.parametrize(("paths", "models", "notes"), CASES)
     def test_on_disk(self, tmp_path, paths, models, notes):
         tree = a_tree_with_models_at_root_models_and_src(paths)
         for path, text in tree.items():

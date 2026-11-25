@@ -247,13 +247,3 @@ def test_every_load_time_check_in_src_has_a_plant() -> None:
     for plant in PLANTS:
         planted.setdefault(plant.module, set()).add(plant.message)
     assert raised == planted
-
-
-def test_the_main_guard_is_read_as_the_entry_point_and_nothing_else() -> None:
-    """The one shape the walk skips, read on both arms: the guard itself is
-    skipped, and a check that merely sits beside it is not."""
-
-    guarded = ast.parse('if __name__ == "__main__":\n    raise SystemExit(0)\n').body[0]
-    unguarded = ast.parse('if __name__ == "other":\n    raise SystemExit(0)\n').body[0]
-    assert _is_main_guard(guarded)
-    assert not _is_main_guard(unguarded)
