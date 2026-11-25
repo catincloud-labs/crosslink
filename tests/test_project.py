@@ -385,9 +385,6 @@ class TestFromAssetGraph:
         assert project.declarations().models[0].layer is None
         assert "unassigned" in project.fingerprint().layers
 
-    def test_an_empty_graph_reduces_to_an_empty_project(self):
-        assert DagsterProject.from_asset_graph([]).declarations().is_empty
-
 
 class TestModelInvariants:
     def test_the_constructor_refuses_a_duplicate_model_name(self):

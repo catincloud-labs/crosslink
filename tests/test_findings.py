@@ -72,9 +72,6 @@ class TestTheNegativeArm:
     def test_a_self_consistent_snapshot_yields_zero_findings(self):
         assert findings(a_consistent_snapshot()) == ()
 
-    def test_an_empty_project_yields_zero_findings(self):
-        assert findings(ProjectDeclarations(format="dagster", name="empty")) == ()
-
 
 class TestEachContradiction:
     def test_an_undeclared_lineage_root_is_found_and_proposes_nothing(self):

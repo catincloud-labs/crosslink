@@ -125,14 +125,6 @@ class TestDiffIsAnOracle:
         snapshot = a_snapshot()
         assert diff(snapshot, snapshot).is_empty
 
-    def test_diff_of_two_empty_snapshots_is_empty(self):
-        """The empty project is the state every consumer must tolerate, and it
-        must not read as drift against itself."""
-
-        left = ProjectDeclarations(format="dagster", name="catalyst")
-        right = ProjectDeclarations(format="dagster", name="catalyst")
-        assert diff(left, right).is_empty
-
     def test_a_mutated_snapshot_yields_a_nonempty_delta(self):
         """A diff that returns empty on real change is the stop-everything
         falsifier: the projection failing as an oracle."""

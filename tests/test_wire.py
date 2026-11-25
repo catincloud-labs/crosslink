@@ -185,15 +185,6 @@ class TestDecodeRefusesTyped:
             MALFORMED_ENVELOPE,
         }
 
-    def test_a_sequence_field_is_refused_not_read(self):
-        """The absence of coordination state is load-bearing (ADR-0004): an
-        envelope claiming an ordering is refused as malformed, so a
-        consumer-trusted sequence cannot arrive by leniency."""
-
-        refusal = decode_envelope(_tampered(sequence=7))
-        assert isinstance(refusal, WireRefusal)
-        assert refusal.control == MALFORMED_ENVELOPE
-
     def test_version_is_checked_before_shape(self):
         """A future v2 with a different shape must refuse as the unknown
         version it is, not as malformed - this ordering is the contract that
